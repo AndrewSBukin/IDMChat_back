@@ -1,0 +1,55 @@
+name: Deploy to Test Server
+
+# Условия запуска: автоматически при пуше в ветку main или вручную из интерфейса GitHub
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    # Указываем, что runner должен быть наш, установленный ранее
+    runs-on: self-hosted
+
+    steps:
+      # 1. Скачать код из репозитория
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Установить .NET 8 (версия должна совпадать с твоей)
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # 3. Восстановить NuGet пакеты и собрать проект
+      - name: Restore and Build
+        run: |
+          dotnet restore
+          dotnet build --configuration Release --no-restore
+
+      # 4. Опубликовать приложение (создать готовые файлы в папке ./publish)
+      - name: Publish
+        run: dotnet publish -c Release -o ./publish --no-build
+
+      # 5. Остановить сайт в IIS, чтобы файлы не были заблокированы
+      - name: Stop IIS Site
+        run: |
+          Import-Module WebAdministration
+          Stop-WebSite -Name "chat_back" # Замени на имя сайта в IIS
+        shell: powershell
+
+      # 6. Скопировать новые файлы на место (например, в C:\inetpub\wwwroot\твой_чат)
+      - name: Deploy files
+        run: |
+          $source = "./publish/*"
+          $destination = "C:\inetpub\wwwroot\chat_back" # Пример: C:\inetpub\wwwroot\MyChat
+          Copy-Item -Path $source -Destination $destination -Recurse -Force
+        shell: powershell
+
+      # 7. Запустить сайт снова
+      - name: Start IIS Site
+        run: |
+          Import-Module WebAdministration
+          Start-WebSite -Name "chat_back"
+        shell: powershell
