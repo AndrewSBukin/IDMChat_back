@@ -1,11 +1,15 @@
+using Asp.Versioning;
 using IDMChat.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace IDMChat.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/v{version:apiVersion}/[controller]")]
+    [Authorize]
+    [ApiVersion("1.0")]
     public class ChatController : ControllerBase
     {
         private readonly ILogger<ChatController> _logger;

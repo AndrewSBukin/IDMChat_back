@@ -1,4 +1,7 @@
-﻿using IDMChat.Models;
+﻿using Asp.Versioning;
+using BCrypt.Net;
+using IDMChat.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -6,10 +9,11 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using BCrypt.Net;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/v{version:apiVersion}/[controller]")]
+[Authorize]
+[ApiVersion("1.0")]
 public class UsersController : ControllerBase
 {
     private readonly ChatDbContext _dbContext;

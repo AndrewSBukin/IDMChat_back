@@ -1,9 +1,11 @@
 
+using Asp.Versioning;
 using IDMChat.Hubs;
 using IDMChat.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using System.Text;
 
 namespace IDMChat
@@ -36,7 +38,11 @@ namespace IDMChat
                 options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
             });
             builder.Services.AddEndpointsApiExplorer();
-            builder.Services.AddSwaggerGen();
+            builder.Services.AddSwaggerGen(options =>
+            {
+                options.SwaggerDoc("v1", new OpenApiInfo { Title = "API v1", Version = "v1" });
+                //options.SwaggerDoc("v2", new OpenApiInfo { Title = "API v2", Version = "v2" });
+            });
 
             builder.Services.AddCors(options =>
             {
@@ -46,6 +52,16 @@ namespace IDMChat
                                     .AllowAnyHeader()
                                     .AllowCredentials());
             });
+
+            builder.Services.AddApiVersioning(options =>
+            {
+                options.DefaultApiVersion = new ApiVersion(1, 0);
+                options.AssumeDefaultVersionWhenUnspecified = true;
+                options.ReportApiVersions = true;  // Возвращать версии в заголовках
+                options.ApiVersionReader = new UrlSegmentApiVersionReader(); // Версия в URL
+            })
+            .AddMvc();
+
 
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
@@ -84,10 +100,14 @@ namespace IDMChat
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.
-            if (app.Environment.IsDevelopment())
+            //if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
-                app.UseSwaggerUI();
+                app.UseSwaggerUI(options =>
+                {
+                    options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
+                    //options.SwaggerEndpoint("/swagger/v2/swagger.json", "v2");
+                });
             }
 
             app.UseHttpsRedirection();

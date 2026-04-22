@@ -33,7 +33,15 @@ namespace IDMChat.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime LastLoginAt { get; set; }
+        
         public bool IsActive { get; set; } = true;
+        
+        [MaxLength(50)]
+        public string Phone { get; set; } = string.Empty;
+        
+        [Required]
+        [MaxLength(100)]
+        public string? Email { get; set; } = string.Empty;
 
         [InverseProperty(nameof(RefreshToken.User))]
         public virtual ICollection<RefreshToken> RefreshTokens { get; set; }

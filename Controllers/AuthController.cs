@@ -1,4 +1,6 @@
-﻿using IDMChat.Models;
+﻿using Asp.Versioning;
+using BCrypt.Net;
+using IDMChat.Models;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -6,10 +8,10 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using BCrypt.Net;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/v{version:apiVersion}/[controller]")]
+[ApiVersion("1.0")]
 public class AuthController : ControllerBase
 {
     private readonly ChatDbContext _dbContext;
@@ -186,8 +188,9 @@ public class AuthController : ControllerBase
 
     public class RefreshRequest
     {
-        public string RefreshToken { get; set; }
+        public string RefreshToken { get; set; } = string.Empty;
     }
+    
     public class UserDto
     {
         public Guid Id { get; set; }
@@ -225,11 +228,10 @@ public class AuthController : ControllerBase
         return Convert.ToBase64String(Guid.NewGuid().ToByteArray());
     }
 
-
     public class LoginRequest
     {
-        public string Username { get; set; }
-        public string Password { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
     }
 }
 
