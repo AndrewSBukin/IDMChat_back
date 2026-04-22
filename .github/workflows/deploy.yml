@@ -33,23 +33,38 @@ jobs:
         run: dotnet publish -c Release -o ./publish --no-build
 
       # 5. Остановить сайт в IIS, чтобы файлы не были заблокированы
-      - name: Stop IIS Site
+      - name: Stop IIS Site and App Pool
         run: |
           Import-Module WebAdministration
-          Stop-WebSite -Name "chat_back" # Замени на имя сайта в IIS
+          Stop-WebSite -Name "chat_back"
+          Stop-WebAppPool -Name "chat_back"  # Остановить пул приложений
+          Start-Sleep -Seconds 3              # Подождать освобождения файлов
         shell: powershell
 
       # 6. Скопировать новые файлы на место (например, в C:\inetpub\wwwroot\твой_чат)
       - name: Deploy files
         run: |
           $source = "./publish/*"
-          $destination = "C:\inetpub\wwwroot\chat_back" # Пример: C:\inetpub\wwwroot\MyChat
-          Copy-Item -Path $source -Destination $destination -Recurse -Force
+          $destination = "C:\inetpub\wwwroot\chat_back"
+          $retry = 0
+          $maxRetries = 5
+          while ($retry -lt $maxRetries) {
+              try {
+                  Copy-Item -Path $source -Destination $destination -Recurse -Force
+                  break
+              }
+              catch {
+                  $retry++
+                  Write-Host "Ошибка копирования, попытка $retry из $maxRetries"
+                  Start-Sleep -Seconds 2
+              }
+          }
         shell: powershell
 
       # 7. Запустить сайт снова
       - name: Start IIS Site
         run: |
           Import-Module WebAdministration
+          Start-WebAppPool -Name "chat_back"
           Start-WebSite -Name "chat_back"
         shell: powershell
