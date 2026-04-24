@@ -1,4 +1,3 @@
 <Solution>
-  <Project Path="../IDMChatTest/IDMChatTest.csproj" Id="8c989a15-cb75-4fef-90f0-4cbaa1f1d7f3" />
   <Project Path="IDMChat.csproj" />
 </Solution>

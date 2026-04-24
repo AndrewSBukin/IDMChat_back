@@ -142,20 +142,10 @@ namespace IDMChat
             builder.Services.AddSingleton<IBackgroundLogQueue, BackgroundLogQueue>();
             builder.Services.AddHostedService<LogBatchProcessor>(); // background writer
 
-            //builder.Services.Configure<HostOptions>(options =>
-            //{
-            //    options.ServicesStartConcurrently = true;
-            //});
-            //var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            //if (!Directory.Exists(webRoot))
-            //    Directory.CreateDirectory(webRoot);
-
-            //builder.Environment.WebRootPath = webRoot;
 
 
             var app = builder.Build();
 
-            // Configure the HTTP request pipeline.
             //if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
@@ -248,7 +238,6 @@ namespace IDMChat
 
             operation.Parameters ??= new List<OpenApiParameter>();
 
-            // Заменяем параметр версии в пути
             var versionParam = operation.Parameters.FirstOrDefault(p => p.Name == "version" && p.In == ParameterLocation.Path);
             if (versionParam != null)
             {

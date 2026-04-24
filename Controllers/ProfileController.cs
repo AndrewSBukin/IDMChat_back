@@ -72,6 +72,7 @@ public class ProfileController : ControllerBase
         if (request.custom_status != null)
             user.CustomStatus = request.custom_status;
 
+        _dbContext.Users.Update(user);
         await _dbContext.SaveChangesAsync();
 
         return Ok(new
@@ -145,7 +146,7 @@ public class ProfileController : ControllerBase
         }
 
         user.AvatarUrl = avatarUrl;
-        _dbContext.Entry(user).Property(x => x.AvatarUrl).IsModified = true;
+        _dbContext.Users.Update(user);
         await _dbContext.SaveChangesAsync();
 
         return Ok(new { avatar_url = avatarUrl });

@@ -54,6 +54,7 @@ public class AuthController : ControllerBase
         // Обновляем данные пользователя
         user.LastLoginAt = DateTime.UtcNow;
         user.LastSeenAt = DateTime.UtcNow;
+        _dbContext.Users.Update(user);
         await _dbContext.SaveChangesAsync();
 
         // Генерируем токены
@@ -175,6 +176,7 @@ public class AuthController : ControllerBase
 
         // Опционально: обновляем дату последнего использования refresh token
         refreshToken.CreatedAt = DateTime.UtcNow;
+        _dbContext.RefreshTokens.Update(refreshToken);
         await _dbContext.SaveChangesAsync();
 
         return Ok(new RefreshResultDto()
