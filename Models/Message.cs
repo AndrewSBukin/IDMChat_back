@@ -30,5 +30,7 @@ namespace IDMChat.Models
 
         // Для мягкого удаления
         public bool IsDeleted { get; set; } = false;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public int ChannelId { get; set; }
     }
 }

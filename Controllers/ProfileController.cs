@@ -41,7 +41,9 @@ public class ProfileController : ControllerBase
             avatar_url = user.AvatarUrl,
             phone = user.Phone ?? string.Empty,
             email = user.Email ?? string.Empty,
-            status = GetStatus(user),
+            status = user.Status.ToString().ToLowerInvariant(),
+            custom_status = user.CustomStatus,
+            is_online = user.IsOnline,
             last_seen_at = user.LastSeenAt
         });
     }
@@ -64,6 +66,12 @@ public class ProfileController : ControllerBase
         if (request.email != null)
             user.Email = request.email;
 
+        if (request.status.HasValue)
+            user.Status = request.status.Value;
+
+        if (request.custom_status != null)
+            user.CustomStatus = request.custom_status;
+
         await _dbContext.SaveChangesAsync();
 
         return Ok(new
@@ -74,7 +82,9 @@ public class ProfileController : ControllerBase
             avatar_url = user.AvatarUrl,
             phone = user.Phone ?? string.Empty,
             email = user.Email ?? string.Empty,
-            status = GetStatus(user),
+            status = user.Status.ToString().ToLowerInvariant(),
+            custom_status = user.CustomStatus,
+            is_online = user.IsOnline,
             last_seen_at = user.LastSeenAt
         });
     }
@@ -103,13 +113,17 @@ public class ProfileController : ControllerBase
             return NotFound(new { error = new { code = "NO_USER", message = "Пользователь не найден" } });
 
         // Создаем папку для аватаров
-        var uploadsFolder = Path.Combine(_env.WebRootPath ?? "wwwroot", "avatars");
+        var uploadsFolder = Path.Combine(_env.WebRootPath ?? "wwwroot", "media", "avatars");
         if (!Directory.Exists(uploadsFolder))
             Directory.CreateDirectory(uploadsFolder);
 
         // Генерируем уникальное имя файла
+        var subFolder = userId.ToString().Substring(0, 2); // "a1"
+        var userFolder = Path.Combine(uploadsFolder, subFolder);
+        if (!Directory.Exists(userFolder))
+            Directory.CreateDirectory(userFolder);
         var fileName = $"{userId}_{DateTime.UtcNow.Ticks}{extension}";
-        var filePath = Path.Combine(uploadsFolder, fileName);
+        var filePath = Path.Combine(userFolder, fileName);
 
         // Сохраняем файл
         using (var stream = new FileStream(filePath, FileMode.Create))
@@ -119,17 +133,19 @@ public class ProfileController : ControllerBase
 
         // Формируем URL
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        var avatarUrl = $"{baseUrl}/avatars/{fileName}";
+        var avatarUrl = $"{baseUrl}/media/avatars/{subFolder}/{fileName}";
 
         // Удаляем старый аватар, если есть
         if (!string.IsNullOrEmpty(user.AvatarUrl))
         {
             var oldFilePath = Path.Combine(_env.WebRootPath ?? "wwwroot", user.AvatarUrl.Replace(baseUrl, "").TrimStart('/'));
-            if (System.IO.File.Exists(oldFilePath))
-                System.IO.File.Delete(oldFilePath);
+            _ = Task.Run(() => { 
+                if (System.IO.File.Exists(oldFilePath))
+                    System.IO.File.Delete(oldFilePath); });
         }
 
         user.AvatarUrl = avatarUrl;
+        _dbContext.Entry(user).Property(x => x.AvatarUrl).IsModified = true;
         await _dbContext.SaveChangesAsync();
 
         return Ok(new { avatar_url = avatarUrl });
@@ -140,21 +156,6 @@ public class ProfileController : ControllerBase
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return Guid.Parse(userIdClaim ?? Guid.Empty.ToString());
     }
-
-    private string GetStatus(User user)
-    {
-        if (!user.IsActive)
-            return "offline";
-
-        if (user.IsOnline)
-        {
-            if (user.LastSeenAt < DateTime.UtcNow.AddMinutes(-5))
-                return "away";
-            return "online";
-        }
-
-        return "offline";
-    }
 }
 
 public class UpdateProfileRequest
@@ -162,5 +163,6 @@ public class UpdateProfileRequest
     public string? display_name { get; set; }
     public string? phone { get; set; }
     public string? email { get; set; }
-    public string? status { get; set; }
+    public UserPresenceStatus? status { get; set; }
+    public string? custom_status { get; set; }
 }

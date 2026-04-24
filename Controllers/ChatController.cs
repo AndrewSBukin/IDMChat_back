@@ -32,11 +32,5 @@ namespace IDMChat.Controllers
 
             return Ok(messages);
         }
-
-        [HttpGet("health")]
-        public IActionResult Health()
-        {
-            return Ok(new { status = "OK", timestamp = DateTime.UtcNow });
-        }
     }
 }

@@ -1,7 +1,5 @@
 ﻿using Asp.Versioning;
-using BCrypt.Net;
 using IDMChat.Models;
-using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -82,7 +80,7 @@ public class AuthController : ControllerBase
         _dbContext.RefreshTokens.Add(refreshTokenEntity);
         await _dbContext.SaveChangesAsync();
 
-        return Ok(new
+        return Ok(new LoginResultDto()
         {
             access_token = accessToken,
             refresh_token = refreshToken,
@@ -179,12 +177,14 @@ public class AuthController : ControllerBase
         refreshToken.CreatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
 
-        return Ok(new
+        return Ok(new RefreshResultDto()
         {
             access_token = accessToken,
             expires_in = expiresIn
         });
     }
+
+
 
     public class RefreshRequest
     {
@@ -232,6 +232,19 @@ public class AuthController : ControllerBase
     {
         public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
+    }
+
+    public class LoginResultDto
+    {
+        public string access_token { get; set; }
+        public string refresh_token { get; set; }
+        public int expires_in { get; set; }
+        public UserDto user { get; set; }
+    }
+    public class RefreshResultDto
+    {
+        public string access_token { get; set; }
+        public int expires_in { get; set; }
     }
 }
 

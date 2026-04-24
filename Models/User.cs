@@ -6,7 +6,6 @@ namespace IDMChat.Models
 {
     [Table("Users")]
     [Index(nameof(Username), IsUnique = true)]
-    [Index(nameof(IsOnline))]
     public class User
     {
         [Key]
@@ -45,5 +44,16 @@ namespace IDMChat.Models
 
         [InverseProperty(nameof(RefreshToken.User))]
         public virtual ICollection<RefreshToken> RefreshTokens { get; set; }
+
+        public string? CustomStatus { get; set; } // "в коде", "сплю" и т.д.
+        public UserPresenceStatus Status { get; set; } // online, offline, away
+    }
+
+    public enum UserPresenceStatus
+    {
+        Online,
+        Offline,
+        Away,
+        DoNotDisturb
     }
 }
