@@ -1,15 +1,27 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Data;
 
 namespace IDMChat.Models
 {
     [Table("Users")]
     [Index(nameof(Username), IsUnique = true)]
+    [Index(nameof(idm))]
+    [Index(nameof(Email))]
+    [Index(nameof(Phone))]
+    [Index(nameof(IsOnline))]
     public class User
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        [MaxLength(100)]
+        public string DisplayName { get; set; } = string.Empty;
+
+        [MaxLength(500)]
+        public string? AvatarUrl { get; set; }
 
         [Required]
         [MaxLength(100)]
@@ -18,10 +30,10 @@ namespace IDMChat.Models
         [Required]
         public string PasswordHash { get; set; } = string.Empty;
 
-        [MaxLength(200)]
-        public string DisplayName { get; set; } = string.Empty;
+        public UserPresenceStatus Status { get; set; } // online, offline, away
 
-        public string? AvatarUrl { get; set; }
+        [MaxLength(8)]
+        public string? idm { get; set; }
 
         [Required]
         [MaxLength(200)]
@@ -42,11 +54,10 @@ namespace IDMChat.Models
         [MaxLength(100)]
         public string? Email { get; set; } = string.Empty;
 
+        public string? CustomStatus { get; set; } // "в коде", "сплю" и т.д.
+
         [InverseProperty(nameof(RefreshToken.User))]
         public virtual ICollection<RefreshToken> RefreshTokens { get; set; }
-
-        public string? CustomStatus { get; set; } // "в коде", "сплю" и т.д.
-        public UserPresenceStatus Status { get; set; } // online, offline, away
     }
 
     public enum UserPresenceStatus

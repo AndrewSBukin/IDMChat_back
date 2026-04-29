@@ -5,3 +5,6 @@ obj
 *.vsidx
 logs/
 *.jsonl
+wwwroot/media
+*.exe
+.vs
