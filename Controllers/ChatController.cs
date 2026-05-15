@@ -1,7 +1,9 @@
 using Asp.Versioning;
 using IDMChat.Domain;
+using IDMChat.DTO;
 using IDMChat.Middleware;
 using IDMChat.Models;
+using IDMChat.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -112,21 +114,89 @@ namespace IDMChat.Controllers
         }
 
         [HttpGet("{conversationId}/messages")]
-        public async Task<IActionResult> GetMessages(Guid conversationId, int count = 50)
+        public async Task<IActionResult> GetMessages(
+            Guid conversationId,
+            [FromQuery] int limit = 50,
+            [FromQuery] long? before = null,  // загрузить СТАРШЕ (история)
+            [FromQuery] long? after = null,   // загрузить НОВЕЕ
+            CancellationToken ct = default)
         {
-            var messages = await _db.Messages
-                .Where(m => m.ConversationId == conversationId && !m.IsDeleted)
-                .OrderByDescending(m => m.SentAt)
-                .Take(count)
-                .ToListAsync();
+            limit = Math.Min(limit, 100);
 
-            return Ok(messages);
+            var userId = HttpContext.GetCurrentUserId();
+
+            // Проверка доступа
+            var isMember = await _db.ConversationMembers
+                .AnyAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId, ct);
+
+            if (!isMember)
+                return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник чата" } });
+
+            IQueryable<Message> query = _db.Messages
+                .Where(m => m.ConversationId == conversationId && !m.IsDeleted);
+
+            if (before.HasValue)
+            {
+                query = query.Where(m => m.Id < before.Value).OrderByDescending(m => m.Id);
+            }
+            else if (after.HasValue)
+            {
+                query = query.Where(m => m.Id > after.Value).OrderBy(m => m.Id);
+            }
+            else
+            {
+                query = query.OrderByDescending(m => m.Id);
+            }
+
+            var messages = await query
+                .Take(limit)
+                .Select(m => new MessageDto
+                {
+                    Id = m.Id,
+                    ConversationId = m.ConversationId,
+                    SenderId = m.SenderId,
+                    Sender = new UserBriefDto
+                    {
+                        Id = m.Sender.Id,
+                        DisplayName = m.Sender.DisplayName,
+                        AvatarUrl = m.Sender.AvatarUrl
+                    },
+                    Type = m.Type.ToString().ToLower(),
+                    Text = m.Text,
+                    IsEdited = m.UpdatedAt.HasValue,
+                    IsDeleted = m.IsDeleted,
+                    CreatedAt = m.CreatedAt,
+                    UpdatedAt = m.UpdatedAt,
+                    Attachments = null,
+                    ReplyTo = null,
+                    ReadBy = null
+                })
+                .ToListAsync(ct);
+
+            var hasMore = messages.Count > limit;
+
+            // Обрезаем до нужного количества
+            if (hasMore)
+                messages = messages.Take(limit).ToList();
+
+            // Для режима before — возвращаем в правильном порядке (от старых к новым)
+            if (before.HasValue)
+            {
+                messages = messages.OrderBy(m => m.Id).ToList();
+            }
+
+            return Ok(new
+            {
+                Messages = messages,
+                HasMore = hasMore,
+                messages.Count
+            });
         }
 
         [HttpPost]
         public async Task<ActionResult<ConversationResponse>> CreateConversation([FromBody] CreateConversationRequest request, CancellationToken ct = default)
         {
-            var userId = GetCurrentUserId();
+            var userId = HttpContext.GetCurrentUserId();
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
 
             // 1. Валидация
@@ -250,7 +320,7 @@ namespace IDMChat.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<ConversationResponse>> GetConversation(Guid id, CancellationToken ct = default)
         {
-            var userId = GetCurrentUserId();
+            var userId = HttpContext.GetCurrentUserId();
             //var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
 
             // Проверка: пользователь в чате?

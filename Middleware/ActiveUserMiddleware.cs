@@ -1,4 +1,5 @@
 ﻿using IDMChat.Models;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 
 namespace IDMChat.Middleware
@@ -7,36 +8,56 @@ namespace IDMChat.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IMemoryCache _cache;
 
-        public ActiveUserMiddleware(RequestDelegate next, IServiceScopeFactory scopeFactory)
+        public ActiveUserMiddleware(
+            RequestDelegate next, 
+            IServiceScopeFactory scopeFactory,
+            IMemoryCache cache)
         {
             _next = next;
             _scopeFactory = scopeFactory;
+            _cache = cache;
         }
 
         public async Task InvokeAsync(HttpContext context)
         {
             if (context.User.Identity?.IsAuthenticated == true)
             {
-                var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-                using var scope = _scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
-
-                var user = await db.Users.FindAsync(userId);
-
-                if (user == null || !user.IsActive)
+                if (Guid.TryParse(userIdClaim, out var userId))
                 {
-                    context.Response.StatusCode = 401;
-                    await context.Response.WriteAsJsonAsync(new
+                    if (!_cache.TryGetValue($"user_{userId}", out User? user))
                     {
-                        error = new { code = "USER_INACTIVE", message = "Пользователь не активен" }
-                    });
-                    return;
-                }
+                        using var scope = _scopeFactory.CreateScope();
+                        var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
 
-                // Прокинуть в контекст для дальнейшего использования
-                context.Items["CurrentUser"] = user;
+                        user = await db.Users.FindAsync(userId);
+                        if (user != null)
+                        {
+                            // 3. Кэшируем на 5 минут (скользящее)
+                            var cacheOptions = new MemoryCacheEntryOptions
+                            {
+                                SlidingExpiration = TimeSpan.FromMinutes(5)
+                            };
+                            _cache.Set($"user_{userId}", user, cacheOptions);
+                        }
+                    }
+                        
+                    if (user == null || !user.IsActive)
+                    {
+                        context.Response.StatusCode = 401;
+                        await context.Response.WriteAsJsonAsync(new
+                        {
+                            error = new { code = "USER_INACTIVE", message = "Пользователь не активен" }
+                        });
+                        return;
+                    }
+
+                    // Прокинуть в контекст для дальнейшего использования
+                    context.Items["CurrentUser"] = user;
+                }
             }
 
             await _next(context);
@@ -55,6 +76,12 @@ namespace IDMChat.Middleware
             return user;
         }
 
+        /// <summary>
+        /// Быстрый метод без обращения к базе выдает Id текущего пользователя
+        /// </summary>
+        /// <param name="context"></param>
+        /// <returns></returns>
+        /// <exception cref="UnauthorizedAccessException"></exception>
         public static Guid GetCurrentUserId(this HttpContext context)
         {
             var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

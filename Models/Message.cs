@@ -34,7 +34,7 @@ namespace IDMChat.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? UpdatedAt { get; set; } = null;
 
         [Required]
         public DateTime SentAt { get; set; } = DateTime.UtcNow;
@@ -61,6 +61,9 @@ namespace IDMChat.Models
 
         [ForeignKey(nameof(ConversationId))]
         public virtual Conversation Conversation { get; set; } = null!;
+
+        [ForeignKey(nameof(SenderId))]
+        public virtual User Sender { get; set; } = null!;
     }
 
     public enum MessageType

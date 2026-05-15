@@ -18,6 +18,7 @@ using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System.ComponentModel.DataAnnotations;
 using System.Text;
+using System.Text.Json;
 
 namespace IDMChat
 {
@@ -146,6 +147,10 @@ namespace IDMChat
             builder.Services.AddSingleton<IBackgroundLogQueue, BackgroundLogQueue>();
             builder.Services.AddHostedService<LogBatchProcessor>(); // background writer
 
+            builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
+            {
+                options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
+            });
 
 
             var app = builder.Build();
