@@ -28,9 +28,12 @@ namespace IDMChat.Models
         [Required]
         public DateTime JoinedAt { get; set; }
 
-        public Guid? LastReadMessageId { get; set; }
+        public long? LastReadMessageId { get; set; }
 
         [ForeignKey(nameof(ConversationId))]
         public Conversation Conversation { get; set; } = null!;
+
+        [ForeignKey(nameof(UserId))]
+        public User User { get; set; } = null!;
     }
 }

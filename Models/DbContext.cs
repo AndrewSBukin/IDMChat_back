@@ -12,6 +12,8 @@ namespace IDMChat.Models
         public DbSet<Message> Messages { get; set; }
         public DbSet<User> Users { get; set; }
         public DbSet<RefreshToken> RefreshTokens { get; set; }
+        public DbSet<Conversation> Conversations { get; set; }
+        public DbSet<ConversationMember> ConversationMembers { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

@@ -1,5 +1,6 @@
 ﻿using Asp.Versioning;
 using BCrypt.Net;
+using IDMChat.Middleware;
 using IDMChat.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity.Data;
@@ -37,8 +38,9 @@ public class UsersController : ControllerBase
 
 
     [HttpGet("")]
-    public async Task<IActionResult> GetUsers()
+    public async Task<IActionResult> GetUsers(CancellationToken ct = default)
     {
+        var currentUser = HttpContext.GetCurrentUser();
         var users = await _dbContext.Users
             .Select(u => new UserDto
             {
@@ -57,6 +59,7 @@ public class UsersController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetUser(Guid id)
     {
+        var currentUser = HttpContext.GetCurrentUser();
         var user = await _dbContext.Users
             .Where(u => u.Id == id)
             .Select(u => new UserDto

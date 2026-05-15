@@ -7,6 +7,7 @@ using IDMChat.Middleware;
 //using IDMChat.Middleware;
 using IDMChat.Models;
 using IDMChat.Services;
+using IDMChat.Utils;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +43,9 @@ namespace IDMChat
             }, poolSize: 256);
 
             builder.Services.AddControllers();
+            builder.Services.AddMemoryCache();
+            builder.Services.AddSingleton<ChatStateCache>();
+            builder.Services.AddSingleton<UserCache>();
             builder.Services.AddSignalR(options =>
             {
                 options.KeepAliveInterval = TimeSpan.FromSeconds(15);
@@ -202,6 +206,7 @@ namespace IDMChat
             app.UseHttpsRedirection();
 
             app.UseAuthentication();
+            app.UseMiddleware<ActiveUserMiddleware>();
             app.UseAuthorization();
 
             app.UseStaticFiles(new StaticFileOptions
@@ -219,6 +224,14 @@ namespace IDMChat
 
             app.MapControllers();
             app.MapHub<ChatHub>("/chatHub");
+
+            var logger = app.Services.GetRequiredService<ILogger<Program>>();
+            app.Lifetime.ApplicationStopping.Register(() =>
+            {
+                logger.LogWarning("Server stopping, waiting for active requests...");
+                Thread.Sleep(5000); // Дать время завершить сохранения
+                logger.LogWarning("Server stopped");
+            });
 
             app.Run();
         }

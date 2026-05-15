@@ -34,6 +34,7 @@ namespace IDMChat.Models
 
         [MaxLength(8)]
         public string? idm { get; set; }
+        public UserRole Role { get; set; } = UserRole.Employee;
 
         [Required]
         [MaxLength(200)]
@@ -58,6 +59,14 @@ namespace IDMChat.Models
 
         [InverseProperty(nameof(RefreshToken.User))]
         public virtual ICollection<RefreshToken> RefreshTokens { get; set; }
+    }
+
+    public enum UserRole
+    {
+        Employee = 0,
+        Manager = 1,
+        Developer = 2,
+        Admin = 3
     }
 
     public enum UserPresenceStatus

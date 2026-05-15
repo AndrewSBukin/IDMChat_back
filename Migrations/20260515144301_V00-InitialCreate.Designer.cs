@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IDMChat.Migrations
 {
     [DbContext(typeof(ChatDbContext))]
-    [Migration("20260429144222_V004-Messages")]
-    partial class V004Messages
+    [Migration("20260515144301_V00-InitialCreate")]
+    partial class V00InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -44,8 +44,8 @@ namespace IDMChat.Migrations
                     b.Property<DateTime?>("LastMessageCreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid?>("LastMessageId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<long?>("LastMessageId")
+                        .HasColumnType("bigint");
 
                     b.Property<Guid?>("LastMessageSenderId")
                         .HasColumnType("uniqueidentifier");
@@ -73,7 +73,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UpdatedAt");
 
-                    b.ToTable("Conversation");
+                    b.ToTable("Conversations");
                 });
 
             modelBuilder.Entity("IDMChat.Models.ConversationMember", b =>
@@ -96,8 +96,8 @@ namespace IDMChat.Migrations
                     b.Property<DateTime>("JoinedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid?>("LastReadMessageId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<long?>("LastReadMessageId")
+                        .HasColumnType("bigint");
 
                     b.Property<int>("UnreadCount")
                         .HasColumnType("int");
@@ -108,17 +108,22 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId", "IsPinned", "ConversationId");
 
-                    b.ToTable("ConversationMember");
+                    b.ToTable("ConversationMembers");
                 });
 
             modelBuilder.Entity("IDMChat.Models.Message", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
                     b.Property<int>("ChannelId")
                         .HasColumnType("int");
+
+                    b.Property<Guid>("ClientTempId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("ConversationId")
                         .HasColumnType("uniqueidentifier");
@@ -129,8 +134,8 @@ namespace IDMChat.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
 
-                    b.Property<Guid?>("ReplyToMessageId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<long?>("ReplyToMessageId")
+                        .HasColumnType("bigint");
 
                     b.Property<Guid>("SenderId")
                         .HasColumnType("uniqueidentifier");
@@ -153,9 +158,9 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("SenderId");
 
-                    b.HasIndex("SentAt");
+                    b.HasIndex("ConversationId", "ClientTempId");
 
-                    b.HasIndex("ConversationId", "SentAt");
+                    b.HasIndex("ConversationId", "Id");
 
                     b.ToTable("Messages");
                 });
@@ -251,6 +256,9 @@ namespace IDMChat.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<int>("Role")
+                        .HasColumnType("int");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -296,7 +304,15 @@ namespace IDMChat.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("IDMChat.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.Navigation("Conversation");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("IDMChat.Models.Message", b =>
