@@ -117,6 +117,13 @@ namespace IDMChat.Utils
             }
         }
 
+        public void UpdateMuteStatus(Guid conversationId, Guid userId, bool isMuted)
+        {
+            // Mute статус хранится в ConversationMember, а не в CachedConversation
+            // Поэтому просто инвалидируем чат, чтобы при следующей загрузке данные обновились
+            Invalidate(conversationId);
+        }
+
         public void Invalidate(Guid conversationId)
         {
             _cache.Remove(conversationId);

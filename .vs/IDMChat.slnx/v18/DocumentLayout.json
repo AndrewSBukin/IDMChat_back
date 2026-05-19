@@ -3,8 +3,28 @@
   "WorkspaceRootPath": "C:\\Projects\\IDMChat_back\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Projects\\IDMChat_back\\Migrations\\20260519144033_V02-ReadStatuses.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:Migrations\\20260519144033_V02-ReadStatuses.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\hubs\\chathub.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:hubs\\chathub.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\controllers\\chatcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:controllers\\chatcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\utils\\chatstatecache.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:utils\\chatstatecache.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\models\\attachment.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:models\\attachment.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\services\\backgroundlogqueue.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -13,10 +33,6 @@
     {
       "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\middleware\\loggingmiddleware.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:middleware\\loggingmiddleware.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\models\\message.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:models\\message.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\dto\\messagedto.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -38,7 +54,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 5,
+          "SelectedChildIndex": 3,
           "Children": [
             {
               "$type": "Bookmark",
@@ -54,7 +70,71 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 0,
+              "Title": "20260519144033_V02-ReadStatuses.cs",
+              "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Migrations\\20260519144033_V02-ReadStatuses.cs",
+              "RelativeDocumentMoniker": "Migrations\\20260519144033_V02-ReadStatuses.cs",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\Migrations\\20260519144033_V02-ReadStatuses.cs",
+              "RelativeToolTip": "Migrations\\20260519144033_V02-ReadStatuses.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-05-19T14:40:33.576Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Program.cs",
+              "RelativeDocumentMoniker": "Program.cs",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\Program.cs",
+              "RelativeToolTip": "Program.cs",
+              "ViewState": "AgIAAKYAAAAAAAAAAAAAAOYAAAAWAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-05-19T13:54:45.277Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "ChatStateCache.cs",
+              "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Utils\\ChatStateCache.cs",
+              "RelativeDocumentMoniker": "Utils\\ChatStateCache.cs",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\Utils\\ChatStateCache.cs",
+              "RelativeToolTip": "Utils\\ChatStateCache.cs",
+              "ViewState": "AgIAAAwAAAAAAAAAAAAAAHwAAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-05-19T12:15:13.488Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "ChatHub.cs",
+              "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Hubs\\ChatHub.cs",
+              "RelativeDocumentMoniker": "Hubs\\ChatHub.cs",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\Hubs\\ChatHub.cs",
+              "RelativeToolTip": "Hubs\\ChatHub.cs",
+              "ViewState": "AgIAAPkAAAAAAAAAAAAwwAkBAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-05-18T08:54:29.124Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "Attachment.cs",
+              "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Models\\Attachment.cs",
+              "RelativeDocumentMoniker": "Models\\Attachment.cs",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\Models\\Attachment.cs",
+              "RelativeToolTip": "Models\\Attachment.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACAAAAAwAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-05-15T21:35:43.227Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
               "Title": "LoggingMiddleware.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Middleware\\LoggingMiddleware.cs",
               "RelativeDocumentMoniker": "Middleware\\LoggingMiddleware.cs",
@@ -62,12 +142,11 @@
               "RelativeToolTip": "Middleware\\LoggingMiddleware.cs",
               "ViewState": "AgIAAAMAAAAAAAAAAAAUwA4AAAAjAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-05-15T21:01:09.191Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-15T21:01:09.191Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 8,
               "Title": "MessageDto.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\DTO\\MessageDto.cs",
               "RelativeDocumentMoniker": "DTO\\MessageDto.cs",
@@ -75,25 +154,24 @@
               "RelativeToolTip": "DTO\\MessageDto.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAABYAAAAvAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-05-15T15:37:43.37Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-15T15:37:43.37Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 2,
               "Title": "ChatController.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Controllers\\ChatController.cs",
               "RelativeDocumentMoniker": "Controllers\\ChatController.cs",
               "ToolTip": "C:\\Projects\\IDMChat_back\\Controllers\\ChatController.cs",
               "RelativeToolTip": "Controllers\\ChatController.cs",
-              "ViewState": "AgIAAJ0AAAAAAAAAAAAAALwAAAANAAAAAAAAAA==",
+              "ViewState": "AgIAABACAAAAAAAAAAAAACUCAAAoAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-04-29T16:29:07.619Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 6,
               "Title": "BackgroundLogQueue.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Services\\BackgroundLogQueue.cs",
               "RelativeDocumentMoniker": "Services\\BackgroundLogQueue.cs",
@@ -101,12 +179,11 @@
               "RelativeToolTip": "Services\\BackgroundLogQueue.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAcAAAAVAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-29T14:12:57.604Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-29T14:12:57.604Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 10,
               "Title": "AuthController.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Controllers\\AuthController.cs",
               "RelativeDocumentMoniker": "Controllers\\AuthController.cs",
@@ -118,7 +195,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 9,
               "Title": "ProfileController.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Controllers\\ProfileController.cs",
               "RelativeDocumentMoniker": "Controllers\\ProfileController.cs",
@@ -126,21 +203,7 @@
               "RelativeToolTip": "Controllers\\ProfileController.cs",
               "ViewState": "AgIAAFcAAAAAAAAAAAAqwF0AAAAjAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-24T16:32:59.31Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 3,
-              "Title": "Message.cs",
-              "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Models\\Message.cs",
-              "RelativeDocumentMoniker": "Models\\Message.cs",
-              "ToolTip": "C:\\Projects\\IDMChat_back\\Models\\Message.cs",
-              "RelativeToolTip": "Models\\Message.cs",
-              "ViewState": "AgIAAAwAAAAAAAAAAAAkwC0AAAAzAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-24T12:11:36.555Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-24T16:32:59.31Z"
             }
           ]
         }
