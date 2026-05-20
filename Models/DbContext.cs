@@ -16,9 +16,15 @@ namespace IDMChat.Models
         public DbSet<ConversationMember> ConversationMembers { get; set; }
         public DbSet<Attachment> Attachments { get; set; }
         public DbSet<MessageReadReceipt> MessageReadReceipts { get; set; }
+        public DbSet<FileAttachment> FileAttachments { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<FileAttachment>()
+                .HasOne(f => f.User)
+                .WithMany()
+                .HasForeignKey(f => f.UserId)
+                .OnDelete(DeleteBehavior.NoAction);
             base.OnModelCreating(modelBuilder);
         }
     }

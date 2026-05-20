@@ -13,7 +13,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualBasic;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using static IDMChat.Controllers.ConversationsController;
+using static IDMChat.Controllers.FilesController;
 
 namespace IDMChat.Controllers
 {
@@ -966,7 +968,123 @@ namespace IDMChat.Controllers
         }
         #endregion
 
+        #region Media
+        [HttpGet("{id}/files")]
+        public async Task<IActionResult> GetFiles(Guid id, [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            var files = await _db.FileAttachments
+                .Where(f => f.ConversationId == id && f.Type == FileType.File)
+                .OrderByDescending(f => f.CreatedAt)
+                .Skip(offset)
+                .Take(limit)
+                .Select(f => new FileInfoResponse
+                {
+                    Id = f.Id,
+                    FileName = f.FileName,
+                    FileSize = f.FileSize,
+                    MimeType = f.MimeType,
+                    SenderId = f.UserId,
+                    SenderName = f.User.DisplayName,
+                    CreatedAt = f.CreatedAt,
+                    Url = $"/api/files/{f.StoragePath}"
+                })
+                .ToListAsync(ct);
+
+            var total = await _db.FileAttachments
+                .CountAsync(f => f.ConversationId == id && f.Type == FileType.File, ct);
+
+            return Ok(new { files, total });
+        }
+
+        [HttpGet("{id}/voice")]
+        public async Task<IActionResult> GetVoiceMessages(Guid id, [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            var voiceMessages = await _db.FileAttachments
+                .Where(f => f.ConversationId == id && f.Type == FileType.Voice)
+                .OrderByDescending(f => f.CreatedAt)
+                .Skip(offset)
+                .Take(limit)
+                .Select(f => new VoiceMessageResponse
+                {
+                    Id = f.Id,
+                    MessageId = f.MessageId,
+                    SenderId = f.UserId,
+                    SenderName = f.User.DisplayName,
+                    Duration = f.Duration ?? 0, 
+                    CreatedAt = f.CreatedAt,
+                    Url = $"/api/files/{f.StoragePath}"
+                })
+                .ToListAsync(ct);
+
+            return Ok(voiceMessages);
+        }
+
+        [HttpGet("{id}/links")]
+        public async Task<IActionResult> GetLinks(Guid id, [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            // Извлекаем ссылки из текста сообщений
+            var messages = await _db.Messages
+                .Where(m => m.ConversationId == id && m.Text.Contains("http://") || m.Text.Contains("https://"))
+                .OrderByDescending(m => m.CreatedAt)
+                .Skip(offset)
+                .Take(limit)
+                .Select(m => new LinkResponse
+                {
+                    MessageId = m.Id,
+                    Url = ExtractFirstUrl(m.Text),  // метод для извлечения
+                    SenderId = m.SenderId,
+                    SenderName = m.Sender.DisplayName,
+                    CreatedAt = m.CreatedAt
+                })
+                .ToListAsync(ct);
+
+            return Ok(messages);
+        }
+        #endregion
+
         #region DTOs
+
+        public class FileInfoResponse
+        {
+            public Guid Id { get; set; }
+            public string FileName { get; set; } = string.Empty;
+            public long FileSize { get; set; }
+            public string MimeType { get; set; } = string.Empty;
+            public Guid SenderId { get; set; }
+            public string SenderName { get; set; } = string.Empty;
+            public DateTime CreatedAt { get; set; }
+            public string Url { get; set; } = string.Empty;
+            public string? ThumbnailUrl { get; set; }
+        }
+
+        public class VoiceMessageResponse
+        {
+            public Guid Id { get; set; }
+            public long MessageId { get; set; }
+            public Guid SenderId { get; set; }
+            public string SenderName { get; set; } = string.Empty;
+            public int Duration { get; set; }  // длительность в секундах
+            public DateTime CreatedAt { get; set; }
+            public string Url { get; set; } = string.Empty;
+        }
+
+        public class LinkResponse
+        {
+            public long MessageId { get; set; }
+            public string Url { get; set; } = string.Empty;
+            public string? Title { get; set; }  // можно позже добавить, вытаскивая <title> из HTML
+            public string? Description { get; set; }
+            public string? ImageUrl { get; set; }
+            public Guid SenderId { get; set; }
+            public string SenderName { get; set; } = string.Empty;
+            public DateTime CreatedAt { get; set; }
+        }
 
         public class MarkAsReadRequest
         {
@@ -1127,6 +1245,16 @@ namespace IDMChat.Controllers
                 UnreadCount = data.UnreadCount,
                 UpdatedAt = data.Conversation.UpdatedAt
             };
+        }
+
+        private static string ExtractFirstUrl(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return string.Empty;
+
+            var regex = new Regex(@"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)");
+            var match = regex.Match(text);
+            return match.Success ? match.Value : string.Empty;
         }
     }
 }

@@ -57,6 +57,16 @@ namespace IDMChat.Models
 
         public string? CustomStatus { get; set; } // "в коде", "сплю" и т.д.
 
+        // Настройки
+        public bool? NotificationsEnabled { get; set; } = true;
+        public bool? SoundEnabled { get; set; } = true;
+
+        [MaxLength(10)]
+        public string? Language { get; set; } = "ru";
+
+        [MaxLength(10)]
+        public string? Theme { get; set; } = "system";
+
         [InverseProperty(nameof(RefreshToken.User))]
         public virtual ICollection<RefreshToken> RefreshTokens { get; set; }
     }
