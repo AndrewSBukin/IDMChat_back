@@ -218,7 +218,7 @@ namespace IDMChat.Controllers
         //        .ProcessAsynchronously();
         //}
 
-        [HttpGet("{*filePath}")]
+        [HttpGet("{**filePath}")]
         public async Task<IActionResult> GetFile(string filePath, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
