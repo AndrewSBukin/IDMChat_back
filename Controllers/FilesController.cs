@@ -68,7 +68,7 @@ namespace IDMChat.Controllers
         }
 
         [HttpPost("upload")]
-        public async Task<ActionResult<UploadFileResponse>> UploadFile(IFormFile file, [FromForm][Required] string type, [FromForm] Guid? conversationId = null, [FromForm] bool isAvatar = false, CancellationToken ct = default)
+        public async Task<ActionResult<UploadFileResponse>> UploadFile(IFormFile file, [FromForm][Required] string type, [FromForm] Guid? conversationId = null, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
 
@@ -88,7 +88,7 @@ namespace IDMChat.Controllers
             var fileId = Guid.NewGuid();
             var originalExtension = Path.GetExtension(file.FileName);
             var fileName = $"{fileId}{originalExtension}";
-            var thumbFileName = $"{fileId}_thumb{originalExtension}";
+            var thumbFileName = $"{fileId}_thumb.jpg";
 
             var datePath = DateTime.UtcNow.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture);
             var uploadsDir = Path.Combine(_storageBasePath, "files", datePath.Replace('/', Path.DirectorySeparatorChar));
@@ -238,7 +238,7 @@ namespace IDMChat.Controllers
 
             // 3. Проверка доступа в зависимости от типа пути
             var isAuthorized = false;
-
+            var log = "decodedPath:"+ decodedPath+";";
             if (decodedPath.StartsWith("files/"))
             {
                 // Файлы чата — проверяем через БД
@@ -248,10 +248,15 @@ namespace IDMChat.Controllers
                 if (attachment != null)
                 {
                     if (attachment.ConversationId != null && attachment.ConversationId != Guid.Empty)
+                    {
+                        log += "attachment without conversationid;";
                         isAuthorized = true;
+                    }
                     else
                         isAuthorized = await _db.ConversationMembers.AnyAsync(cm => (cm.ConversationId == attachment.ConversationId) && cm.UserId == userId, ct);
                 }
+                else
+                    log += "attachment not found;";
             }
             else if (decodedPath.StartsWith("avatars/"))
             {
