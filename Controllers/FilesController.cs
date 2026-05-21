@@ -1,11 +1,12 @@
 ﻿using Asp.Versioning;
 using FFMpegCore;
+using FFMpegCore.Extend;
 using IDMChat.Middleware;
 using IDMChat.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
-using FFMpegCore.Extend;
 
 namespace IDMChat.Controllers
 {
@@ -218,14 +219,56 @@ namespace IDMChat.Controllers
         //}
 
         [HttpGet("{*filePath}")]
-        public async Task<IActionResult> GetFile(string filePath)
+        public async Task<IActionResult> GetFile(string filePath, CancellationToken ct = default)
         {
-            var fullPath = Path.Combine(_storageBasePath, filePath);
+            var userId = HttpContext.GetCurrentUserId();
 
+            // 1. Декодируем путь
+            var decodedPath = Uri.UnescapeDataString(filePath);
+            var fullPath = Path.Combine(_storageBasePath, decodedPath);
+
+            // 2. Проверяем существование файла
             if (!System.IO.File.Exists(fullPath))
-                return NotFound();
+                return NotFound(new { error = new { code = "FILE_NOT_FOUND", message = "Файл не найден" } });
 
-            // Пока без проверок — только для теста
+            // 3. Проверка доступа в зависимости от типа пути
+            var isAuthorized = false;
+
+            if (decodedPath.StartsWith("files/"))
+            {
+                // Файлы чата — проверяем через БД
+                var attachment = await _db.FileAttachments
+                    .FirstOrDefaultAsync(f => f.StoragePath == decodedPath || f.ThumbnailPath == decodedPath, ct);
+
+                if (attachment != null)
+                {
+                    isAuthorized = await _db.ConversationMembers
+                        .AnyAsync(cm => cm.ConversationId == attachment.ConversationId && cm.UserId == userId, ct);
+                }
+            }
+            else if (decodedPath.StartsWith("avatars/conversations/"))
+            {
+                // Аватар группы — проверяем членство в чате
+                var fileName = Path.GetFileNameWithoutExtension(decodedPath);
+                var conversationIdStr = fileName.Split('_').FirstOrDefault();
+
+                if (Guid.TryParse(conversationIdStr, out var conversationId))
+                {
+                    isAuthorized = await _db.ConversationMembers
+                        .AnyAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId, ct);
+                }
+            }
+            else if (decodedPath.StartsWith("avatars/users/"))
+            {
+                // Аватар пользователя — доступен всем авторизованным
+                isAuthorized = true;
+            }
+
+            if (!isAuthorized)
+                return StatusCode(403, new { error = new { code = "FORBIDDEN", message = "Доступ запрещён" } });
+
+
+            // 4. Отдаём файл
             var stream = System.IO.File.OpenRead(fullPath);
             var mimeType = GetMimeType(fullPath);
 
