@@ -9,11 +9,9 @@ namespace IDMChat.Models
         [Key]
         public Guid Id { get; set; }
 
-        [Required]
-        public long MessageId { get; set; }  // к какому сообщению привязан
+        public long? MessageId { get; set; }  // к какому сообщению привязан
         
-        [Required]
-        public Guid ConversationId { get; set; }
+        public Guid? ConversationId { get; set; }
 
         [Required]
         public Guid UserId { get; set; }  // кто загрузил

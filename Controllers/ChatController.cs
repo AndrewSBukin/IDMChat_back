@@ -30,17 +30,20 @@ namespace IDMChat.Controllers
         private readonly ChatDbContext _db;
         private readonly ChatStateCache _cache;
         private readonly IHubContext<ChatHub> _hubContext;
+        private readonly string _storageBasePath;
 
         public ConversationsController(
             ChatDbContext dbContext, 
             ILogger<ConversationsController> logger,
             ChatStateCache cache,
-            IHubContext<ChatHub> hubContext)
+            IHubContext<ChatHub> hubContext, 
+            IConfiguration configuration)
         {
             _db = dbContext;
             _logger = logger;
             _cache = cache;
             _hubContext = hubContext;
+            _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
         }
 
         #region Conversations
@@ -1011,7 +1014,7 @@ namespace IDMChat.Controllers
                 .Select(f => new VoiceMessageResponse
                 {
                     Id = f.Id,
-                    MessageId = f.MessageId,
+                    MessageId = f.MessageId ?? 0,
                     SenderId = f.UserId,
                     SenderName = f.User.DisplayName,
                     Duration = f.Duration ?? 0, 
@@ -1045,6 +1048,87 @@ namespace IDMChat.Controllers
                 .ToListAsync(ct);
 
             return Ok(messages);
+        }
+
+        /// <summary>
+        /// Загрузить аватар группы (только для администратора)
+        /// </summary>
+        [HttpPost("{id}/avatar")]
+        public async Task<IActionResult> UploadGroupAvatar(Guid id, IFormFile file, CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            // 1. Находим чат
+            var conversation = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == id, ct);
+
+            if (conversation == null)
+                return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
+
+            // 2. Только групповые чаты
+            if (conversation.Type != ConversationType.Group)
+                return BadRequest(new { error = new { code = "NOT_GROUP", message = "Только групповые чаты могут иметь аватар" } });
+
+            // 3. Проверка прав (только администратор)
+            var isAdmin = await _db.ConversationMembers
+                .AnyAsync(cm => cm.ConversationId == id && cm.UserId == userId && cm.IsAdmin, ct);
+
+            if (!isAdmin)
+                return StatusCode(403, new { error = new { code = "NOT_ADMIN", message = "Только администратор может изменять аватар группы" } });
+
+            // 4. Проверка файла
+            if (file == null || file.Length == 0)
+                return UnprocessableEntity(new { error = new { code = "NO_FILE", message = "Файл не выбран" } });
+
+            if (file.Length > 5 * 1024 * 1024)
+                return UnprocessableEntity(new { error = new { code = "FILE_TOO_LARGE", message = "Файл превышает 5MB" } });
+
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+            if (!allowedExtensions.Contains(extension))
+                return UnprocessableEntity(new { error = new { code = "INVALID_FORMAT", message = "Поддерживаются только JPG, PNG, GIF, WEBP" } });
+
+            // 5. Сохраняем файл
+            var avatarsFolder = Path.Combine(_storageBasePath, "avatars", "conversations");
+            Directory.CreateDirectory(avatarsFolder);
+
+            // Удаляем старый аватар, если есть
+            if (!string.IsNullOrEmpty(conversation.AvatarUrl))
+            {
+                var oldFilePath = Path.Combine(_storageBasePath, conversation.AvatarUrl.Replace($"{Request.Scheme}://{Request.Host}/api/files/", ""));
+                _ = Task.Run(() => {
+                    if (System.IO.File.Exists(oldFilePath))
+                        try { System.IO.File.Delete(oldFilePath); } catch { }
+                });
+            }
+
+            // Сохраняем новый
+            var fileName = $"{id}_{DateTime.UtcNow.Ticks}{extension}";
+            var filePath = Path.Combine(avatarsFolder, fileName);
+
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream, ct);
+            }
+
+            // 6. Формируем URL
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var avatarUrl = $"{baseUrl}/api/files/avatars/conversations/{fileName}";
+
+            // 7. Обновляем запись в БД
+            conversation.AvatarUrl = avatarUrl;
+            conversation.UpdatedAt = DateTime.UtcNow;
+            _db.Conversations.Update(conversation);
+            await _db.SaveChangesAsync(ct);
+
+            // 8. Инвалидируем кэш
+            _cache.Invalidate(id);
+
+            // 9. Уведомляем всех участников чата через SignalR
+            var updatedConversation = await BuildConversationResponse(id, userId, ct);
+            await _hubContext.Clients.Group(id.ToString()).SendAsync("conversation_updated", updatedConversation);
+
+            return Ok(new { avatar_url = avatarUrl });
         }
         #endregion
 

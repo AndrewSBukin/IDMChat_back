@@ -20,10 +20,10 @@ public class UsersController : ControllerBase
     private readonly ChatDbContext _dbContext;
     private readonly IConfiguration _config;
 
-    public UsersController(ChatDbContext dbContext, IConfiguration config)
+    public UsersController(ChatDbContext dbContext, IConfiguration configuration)
     {
         _dbContext = dbContext;
-        _config = config;
+        _config = configuration;
     }
 
     public class UserDto

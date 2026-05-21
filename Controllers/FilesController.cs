@@ -40,6 +40,7 @@ namespace IDMChat.Controllers
             "application/zip", "application/x-rar-compressed",
             "text/plain"
         };
+        private readonly string _storageBasePath;
 
         private string GetMimeType(string fileName)
         {
@@ -55,15 +56,16 @@ namespace IDMChat.Controllers
             };
         }
 
-        public FilesController(ChatDbContext dbContext, IWebHostEnvironment environment, ILogger<FilesController> logger)
+        public FilesController(ChatDbContext dbContext, IWebHostEnvironment environment, ILogger<FilesController> logger, IConfiguration configuration)
         {
             _db = dbContext;
             _environment = environment;
             _logger = logger;
+            _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
         }
 
         [HttpPost("upload")]
-        public async Task<ActionResult<UploadFileResponse>> UploadFile(IFormFile file, [FromForm][Required] string type, CancellationToken ct = default)
+        public async Task<ActionResult<UploadFileResponse>> UploadFile(IFormFile file, [FromForm][Required] string type, [FromForm] Guid? conversationId = null, [FromForm] bool isAvatar = false, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
 
@@ -86,7 +88,7 @@ namespace IDMChat.Controllers
             var thumbFileName = $"{fileId}_thumb.jpg";
 
             var datePath = DateTime.UtcNow.ToString("yyyy/MM/dd");
-            var uploadsDir = Path.Combine(_environment.ContentRootPath, "uploads", datePath);
+            var uploadsDir = Path.Combine(_storageBasePath, "files", datePath);
             Directory.CreateDirectory(uploadsDir);
 
             var filePath = Path.Combine(uploadsDir, fileName);
@@ -99,39 +101,34 @@ namespace IDMChat.Controllers
             }
 
             // 6. Генерируем миниатюру (только для изображений)
-            string? thumbnailUrl = null; 
+            bool hasThumbnail = false;
             int? duration = null;
             // Генерация миниатюры через FFmpeg для изображений
             if (fileType == FileType.Image)
             {
-                //var thumbFileName = $"{fileId}_thumb.jpg";
-                //var thumbPath = Path.Combine(uploadsDir, thumbFileName);
-
                 await GenerateImageThumbnailWithFfmpeg(filePath, thumbPath, 200, 200);
-                thumbnailUrl = $"/api/files/{datePath}/{thumbFileName}";
+                hasThumbnail = true;
             }
             else if (fileType == FileType.Video)
             {
                 var mediaInfo = await FFProbe.AnalyseAsync(filePath);
                 duration = (int)mediaInfo.Duration.TotalSeconds;
 
-                //var thumbFileName = $"{fileId}_thumb.jpg";
-                //var thumbPath = Path.Combine(uploadsDir, thumbFileName);
-
                 await GenerateVideoThumbnailAsync(filePath, thumbPath, TimeSpan.FromSeconds(5));
-                thumbnailUrl = $"/api/files/{datePath}/{thumbFileName}";
+                hasThumbnail = true;
             }
 
             // Сохраняем в БД
             var attachment = new FileAttachment
             {
                 Id = fileId,
-                UserId = userId, 
+                UserId = userId,
+                ConversationId = conversationId ?? Guid.Empty,
                 FileName = file.FileName,
                 FileSize = file.Length,
                 MimeType = file.ContentType,
-                StoragePath = Path.Combine(datePath, fileName),
-                ThumbnailPath = thumbnailUrl != null ? Path.Combine(datePath, Path.GetFileName(thumbnailUrl)) : null,
+                StoragePath = Path.Combine("files", datePath, fileName),
+                ThumbnailPath = hasThumbnail ? Path.Combine("files", datePath, thumbFileName) : null,
                 Type = fileType,
                 Duration = duration,
                 CreatedAt = DateTime.UtcNow
@@ -155,7 +152,7 @@ namespace IDMChat.Controllers
                 FileSize = file.Length,
                 MimeType = file.ContentType,
                 Url = $"{baseUrl}/api/files/{datePath}/{fileName}",
-                ThumbnailUrl = attachment.ThumbnailPath != null ? $"{baseUrl}/api/files/{attachment.ThumbnailPath}" : null,
+                ThumbnailUrl = hasThumbnail ? $"{baseUrl}/api/files/{attachment.ThumbnailPath}" : null,
                 Duration = duration
             });
         }

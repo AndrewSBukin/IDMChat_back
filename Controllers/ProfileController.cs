@@ -1,4 +1,5 @@
 ﻿using Asp.Versioning;
+using IDMChat.Middleware;
 using IDMChat.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,19 +17,21 @@ public class ProfileController : ControllerBase
     private readonly ChatDbContext _dbContext;
     private readonly IWebHostEnvironment _env;
     private readonly IConfiguration _config;
+    private readonly string _storageBasePath;
 
-    public ProfileController(ChatDbContext dbContext, IWebHostEnvironment env, IConfiguration config)
+    public ProfileController(ChatDbContext dbContext, IWebHostEnvironment env, IConfiguration configuration)
     {
         _dbContext = dbContext;
         _env = env;
-        _config = config;
+        _config = configuration;
+        _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
     }
 
     [HttpGet("")]
     public async Task<IActionResult> GetProfile()
     {
-        var userId = GetCurrentUserId();
-        var user = await _dbContext.Users.FindAsync(userId);
+        var userId = HttpContext.GetCurrentUserId();
+        var user = HttpContext.GetCurrentUser();
 
         if (user == null)
             return NotFound();
@@ -51,8 +54,8 @@ public class ProfileController : ControllerBase
     [HttpPatch("")]
     public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
     {
-        var userId = GetCurrentUserId();
-        var user = await _dbContext.Users.FindAsync(userId);
+        var userId = HttpContext.GetCurrentUserId();
+        var user = HttpContext.GetCurrentUser();
 
         if (user == null)
             return NotFound();
@@ -107,22 +110,21 @@ public class ProfileController : ControllerBase
         if (!allowedExtensions.Contains(extension))
             return UnprocessableEntity(new { error = new { code = "INVALID_FORMAT", message = "Поддерживаются только JPG, PNG, GIF, WEBP" } });
 
-        var userId = GetCurrentUserId();
-        var user = await _dbContext.Users.FindAsync(userId);
+        var userId = HttpContext.GetCurrentUserId();
+        var user = HttpContext.GetCurrentUser();
 
         if (user == null)
             return NotFound(new { error = new { code = "NO_USER", message = "Пользователь не найден" } });
 
         // Создаем папку для аватаров
-        var uploadsFolder = Path.Combine(_env.WebRootPath ?? "wwwroot", "media", "avatars");
-        if (!Directory.Exists(uploadsFolder))
-            Directory.CreateDirectory(uploadsFolder);
+        var uploadsFolder = Path.Combine(_storageBasePath, "avatars", "users");
+        Directory.CreateDirectory(uploadsFolder);
 
         // Генерируем уникальное имя файла
         var subFolder = userId.ToString().Substring(0, 2); // "a1"
         var userFolder = Path.Combine(uploadsFolder, subFolder);
-        if (!Directory.Exists(userFolder))
-            Directory.CreateDirectory(userFolder);
+        Directory.CreateDirectory(userFolder);
+
         var fileName = $"{userId}_{DateTime.UtcNow.Ticks}{extension}";
         var filePath = Path.Combine(userFolder, fileName);
 
@@ -134,12 +136,12 @@ public class ProfileController : ControllerBase
 
         // Формируем URL
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        var avatarUrl = $"{baseUrl}/media/avatars/{subFolder}/{fileName}";
+        var avatarUrl = $"{baseUrl}/api/files/avatars/users/{subFolder}/{fileName}";
 
         // Удаляем старый аватар, если есть
         if (!string.IsNullOrEmpty(user.AvatarUrl))
         {
-            var oldFilePath = Path.Combine(_env.WebRootPath ?? "wwwroot", user.AvatarUrl.Replace(baseUrl, "").TrimStart('/'));
+            var oldFilePath = Path.Combine(_storageBasePath, user.AvatarUrl.Replace(baseUrl, "").TrimStart('/'));
             _ = Task.Run(() => { 
                 if (System.IO.File.Exists(oldFilePath))
                     System.IO.File.Delete(oldFilePath); });
@@ -150,12 +152,6 @@ public class ProfileController : ControllerBase
         await _dbContext.SaveChangesAsync();
 
         return Ok(new { avatar_url = avatarUrl });
-    }
-
-    private Guid GetCurrentUserId()
-    {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        return Guid.Parse(userIdClaim ?? Guid.Empty.ToString());
     }
 }
 
