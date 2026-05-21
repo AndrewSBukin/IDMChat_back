@@ -227,6 +227,7 @@ namespace IDMChat.Controllers
             var decodedPath = Uri.UnescapeDataString(filePath);
             var fullPath = Path.Combine(_storageBasePath, decodedPath);
 
+            return Ok(new { decodedPath, fullPath });
             // 2. Проверяем существование файла
             if (!System.IO.File.Exists(fullPath))
                 return NotFound(new { error = new { code = "FILE_NOT_FOUND", message = "Файл не найден" } });
