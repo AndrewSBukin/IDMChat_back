@@ -265,7 +265,7 @@ namespace IDMChat.Controllers
             }
 
             if (!isAuthorized)
-                return StatusCode(403, new { error = new { code = "FORBIDDEN", message = "Доступ запрещён" } });
+                return StatusCode(403, new { error = new { code = "FORBIDDEN", message = "Доступ запрещён", log } });
 
 
             // 4. Отдаём файл
