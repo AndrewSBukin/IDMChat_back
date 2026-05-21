@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 
 namespace IDMChat.Controllers
 {
@@ -87,10 +88,10 @@ namespace IDMChat.Controllers
             var fileId = Guid.NewGuid();
             var originalExtension = Path.GetExtension(file.FileName);
             var fileName = $"{fileId}{originalExtension}";
-            var thumbFileName = $"{fileId}_thumb.jpg";
+            var thumbFileName = $"{fileId}_thumb{originalExtension}";
 
-            var datePath = DateTime.UtcNow.ToString("yyyy/MM/dd");
-            var uploadsDir = Path.Combine(_storageBasePath, "files", datePath);
+            var datePath = DateTime.UtcNow.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture);
+            var uploadsDir = Path.Combine(_storageBasePath, "files", datePath.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(uploadsDir);
 
             var filePath = Path.Combine(uploadsDir, fileName);
@@ -120,6 +121,9 @@ namespace IDMChat.Controllers
                 hasThumbnail = true;
             }
 
+            var storageRelativePath = $"files/{datePath}/{fileName}";
+            var thumbnailRelativePath = hasThumbnail ? $"files/{datePath}/{thumbFileName}" : null;
+
             // Сохраняем в БД
             var attachment = new FileAttachment
             {
@@ -129,8 +133,8 @@ namespace IDMChat.Controllers
                 FileName = file.FileName,
                 FileSize = file.Length,
                 MimeType = file.ContentType,
-                StoragePath = Path.Combine("files", datePath, fileName),
-                ThumbnailPath = hasThumbnail ? Path.Combine("files", datePath, thumbFileName) : null,
+                StoragePath = storageRelativePath,
+                ThumbnailPath = thumbnailRelativePath,
                 Type = fileType,
                 Duration = duration,
                 CreatedAt = DateTime.UtcNow
@@ -243,25 +247,15 @@ namespace IDMChat.Controllers
 
                 if (attachment != null)
                 {
-                    isAuthorized = await _db.ConversationMembers
-                        .AnyAsync(cm => cm.ConversationId == attachment.ConversationId && cm.UserId == userId, ct);
+                    if (attachment.ConversationId != null && attachment.ConversationId != Guid.Empty)
+                        isAuthorized = true;
+                    else
+                        isAuthorized = await _db.ConversationMembers.AnyAsync(cm => (cm.ConversationId == attachment.ConversationId) && cm.UserId == userId, ct);
                 }
             }
-            else if (decodedPath.StartsWith("avatars/conversations/"))
+            else if (decodedPath.StartsWith("avatars/"))
             {
-                // Аватар группы — проверяем членство в чате
-                var fileName = Path.GetFileNameWithoutExtension(decodedPath);
-                var conversationIdStr = fileName.Split('_').FirstOrDefault();
-
-                if (Guid.TryParse(conversationIdStr, out var conversationId))
-                {
-                    isAuthorized = await _db.ConversationMembers
-                        .AnyAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId, ct);
-                }
-            }
-            else if (decodedPath.StartsWith("avatars/users/"))
-            {
-                // Аватар пользователя — доступен всем авторизованным
+                // Аватар доступен всем авторизованным
                 isAuthorized = true;
             }
 
