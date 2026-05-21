@@ -151,8 +151,8 @@ namespace IDMChat.Controllers
                 FileName = file.FileName,
                 FileSize = file.Length,
                 MimeType = file.ContentType,
-                Url = $"{baseUrl}/api/files/{datePath}/{fileName}",
-                ThumbnailUrl = hasThumbnail ? $"{baseUrl}/api/files/{attachment.ThumbnailPath}" : null,
+                Url = $"{baseUrl}/api/files/files/{datePath}/{fileName}",
+                ThumbnailUrl = hasThumbnail ? $"{baseUrl}/api/files/files/{datePath}/{thumbFileName}" : null,
                 Duration = duration
             });
         }
@@ -217,16 +217,17 @@ namespace IDMChat.Controllers
         //        .ProcessAsynchronously();
         //}
 
-        [HttpGet("{year}/{month}/{day}/{fileName}")]
-        public async Task<IActionResult> GetFile(int year, int month, int day, string fileName)
+        [HttpGet("{*filePath}")]
+        public async Task<IActionResult> GetFile(string filePath)
         {
-            var filePath = Path.Combine(_environment.ContentRootPath, "uploads", $"{year:0000}/{month:00}/{day:00}", fileName);
+            var fullPath = Path.Combine(_storageBasePath, filePath);
 
-            if (!System.IO.File.Exists(filePath))
+            if (!System.IO.File.Exists(fullPath))
                 return NotFound();
 
-            var stream = System.IO.File.OpenRead(filePath);
-            var mimeType = fileName.EndsWith(".jpg") ? "image/jpeg" : GetMimeType(fileName);
+            // Пока без проверок — только для теста
+            var stream = System.IO.File.OpenRead(fullPath);
+            var mimeType = GetMimeType(fullPath);
 
             return File(stream, mimeType);
         }
