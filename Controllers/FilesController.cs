@@ -247,7 +247,7 @@ namespace IDMChat.Controllers
 
                 if (attachment != null)
                 {
-                    if (attachment.ConversationId != null && attachment.ConversationId != Guid.Empty)
+                    if (attachment.ConversationId == null || attachment.ConversationId == Guid.Empty)
                     {
                         log += "attachment without conversationid;";
                         isAuthorized = true;
