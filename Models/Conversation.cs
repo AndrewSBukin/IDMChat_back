@@ -18,6 +18,9 @@ namespace IDMChat.Models
         [MaxLength(100)]
         public string? Name { get; set; }
 
+        [MaxLength(20)]
+        public string? Idm { get; set; }
+
         [MaxLength(500)]
         public string? AvatarUrl { get; set; }
 
@@ -26,6 +29,11 @@ namespace IDMChat.Models
 
         [Required]
         public DateTime UpdatedAt { get; set; }
+
+        public bool IsDeleted { get; set; } = false;
+        public Guid? DeletedBy { get; set; } = null;
+        public DateTime? DeletedAt { get; set; } = null;
+
 
         [Required]
         public bool IsWriteRestricted { get; set; } = false; // true = только админы
@@ -50,9 +58,9 @@ namespace IDMChat.Models
     public enum ConversationType
     {
         [Display(Name = "direct")]
-        Direct = 0,
+        direct = 0,
 
         [Display(Name = "group")]
-        Group = 1
+        group = 1
     }
 }

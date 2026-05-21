@@ -38,10 +38,16 @@ public class UsersController : ControllerBase
 
 
     [HttpGet("")]
-    public async Task<IActionResult> GetUsers(CancellationToken ct = default)
+    public async Task<IActionResult> GetUsers([FromQuery] string search = "", [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
     {
         var currentUser = HttpContext.GetCurrentUser();
-        var users = await _dbContext.Users
+        var allusers = _dbContext.Users
+            .Where(u => u.idm == currentUser.idm || currentUser.Role == UserRole.Admin)
+            .Where(u => search == "" || u.Username.Contains(search) || u.Email.Contains(search) || u.DisplayName.Contains(search));
+
+        var users = await allusers
+            .Skip(offset)
+            .Take(limit)
             .Select(u => new UserDto
             {
                 id = u.Id,
@@ -53,7 +59,7 @@ public class UsersController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(users);
+        return Ok(new { users, total = allusers.Count() });
     }
 
     [HttpGet("{id}")]

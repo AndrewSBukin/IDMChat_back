@@ -54,7 +54,7 @@ namespace IDMChat.Controllers
 
             // 1. Один запрос: все чаты + участники + последнее сообщение
             var conversationsData = await _db.ConversationMembers
-                .Where(cm => cm.UserId == userId)
+                .Where(cm => cm.UserId == userId && !cm.Conversation.IsDeleted)
                 .OrderByDescending(cm => cm.IsPinned)
                 .ThenByDescending(cm => cm.Conversation.UpdatedAt)
                 .Skip(offset)
@@ -67,35 +67,37 @@ namespace IDMChat.Controllers
                     Conversation = cm.Conversation,
 
                     // Участники (только для group, для direct - все)
-                    Members = cm.Conversation.Type == ConversationType.Group
-                        ? cm.Conversation.Members.Select(m => new MemberResponse
+                    Members = cm.Conversation.Type == ConversationType.group
+                        ? cm.Conversation.Members
+                        .Where(m => !m.Conversation.IsDeleted)
+                        .Select(m => new MemberResponse
                         {
-                            Id = m.UserId,
-                            DisplayName = m.User.DisplayName,
-                            AvatarUrl = m.User.AvatarUrl,
-                            Status = m.User.IsOnline ? "online" : "offline"
+                            id = m.UserId,
+                            display_name = m.User.DisplayName,
+                            avatar_url = m.User.AvatarUrl,
+                            status = m.User.IsOnline ? "online" : "offline"
                         }).ToList()
                         : cm.Conversation.Members
                             .Where(m => m.UserId != userId)
                             .Select(m => new MemberResponse
                             {
-                                Id = m.UserId,
-                                DisplayName = m.User.DisplayName,
-                                AvatarUrl = m.User.AvatarUrl,
-                                Status = m.User.IsOnline ? "online" : "offline"
+                                id = m.UserId,
+                                display_name = m.User.DisplayName,
+                                avatar_url = m.User.AvatarUrl,
+                                status = m.User.IsOnline ? "online" : "offline"
                             }).ToList(),
 
                     // Последнее сообщение (из денормализованного поля)
                     LastMessage = cm.Conversation.LastMessageId != null
                         ? new LastMessageResponse
                         {
-                            Id = cm.Conversation.LastMessage!.Id,
-                            Text = cm.Conversation.LastMessage.Text.Length > 100
+                            id = cm.Conversation.LastMessage!.Id,
+                            text = cm.Conversation.LastMessage.Text.Length > 100
                                 ? cm.Conversation.LastMessage.Text.Substring(0, 100) + "..."
                                 : cm.Conversation.LastMessage.Text,
-                            Type = cm.Conversation.LastMessage.Type,
-                            SenderId = cm.Conversation.LastMessage.SenderId,
-                            CreatedAt = cm.Conversation.LastMessage.CreatedAt
+                            type = cm.Conversation.LastMessage.Type,
+                            sender_id = cm.Conversation.LastMessage.SenderId,
+                            created_at = cm.Conversation.LastMessage.CreatedAt
                         }
                         : null
                 })
@@ -103,21 +105,21 @@ namespace IDMChat.Controllers
 
             // 2. Получить total (отдельный запрос, но легкий)
             var total = await _db.ConversationMembers
-                .Where(cm => cm.UserId == userId)
+                .Where(cm => cm.UserId == userId && !cm.Conversation.IsDeleted)
                 .CountAsync(ct);
 
             var conversations = conversationsData.Select(data => new ConversationResponse
             {
-                Id = data.Conversation.Id,
-                Type = data.Conversation.Type,
-                Name = data.Conversation.Name,
-                AvatarUrl = data.Conversation.AvatarUrl,
-                IsPinned = data.IsPinned,
-                IsMuted = data.IsMuted,
-                Members = data.Members,
-                LastMessage = data.LastMessage,
-                UnreadCount = data.UnreadCount,
-                UpdatedAt = data.Conversation.UpdatedAt
+                id = data.Conversation.Id,
+                type = data.Conversation.Type.ToString(),
+                name = data.Conversation.Name,
+                avatar_url = data.Conversation.AvatarUrl,
+                is_pinned = data.IsPinned,
+                is_muted = data.IsMuted,
+                members = data.Members,
+                last_message = data.LastMessage,
+                unread_count = data.UnreadCount,
+                updated_at = data.Conversation.UpdatedAt
             }).ToList();
 
             return Ok(new ConversationsResponse
@@ -129,13 +131,15 @@ namespace IDMChat.Controllers
 
 
         [HttpPost]
-        public async Task<ActionResult<ConversationResponse>> CreateConversation([FromBody] CreateConversationRequest request, CancellationToken ct = default)
+        public async Task<ActionResult> CreateConversation([FromBody] CreateConversationRequest request, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
-
+            var idm = "";
+            if (!Enum.TryParse<ConversationType>(request.Type, true, out var requestChatType))
+                return UnprocessableEntity(new { error = new { code = "INVALID_FORMAT", message = $"Неверный тип: {request.Type}" } });
             // 1. Валидация
-            if (request.Type == ConversationType.Direct)
+            if (requestChatType == ConversationType.direct)
             {
                 if (request.MemberIds?.Count != 1)
                     return BadRequest(new { error = new { code = "DIRECT_REQUIRES_ONE_MEMBER", message = "Для создания чата необходим собеседник" } });
@@ -144,7 +148,7 @@ namespace IDMChat.Controllers
                 var existing = await _db.ConversationMembers
                     .Where(cm => cm.UserId == userId)
                     .Select(cm => cm.Conversation)
-                    .Where(c => c.Type == ConversationType.Direct)
+                    .Where(c => c.Type == ConversationType.direct)
                     .SelectMany(c => c.Members)
                     .Where(cm => request.MemberIds.Contains(cm.UserId))
                     .AnyAsync(ct);
@@ -156,12 +160,14 @@ namespace IDMChat.Controllers
                 var targetUser = await _db.Users.FindAsync(new object[] { request.MemberIds[0] }, ct);
 
                 if (currentUser.idm != targetUser.idm && currentUser.Role != UserRole.Admin)
-                    return BadRequest(new { error = "CONVERSATION_EXISTS", message = "Такая беседа уже сущствует" });
+                    return NotFound(new { error = "USER_NOT_FOUND", message = "Пользователь не найден" });
+
+                idm = currentUser.idm;
             }
             else // Group
             {
-                if (request.MemberIds?.Count < 2)
-                    return BadRequest(new { error = "GROUP_REQUIRES_AT_LEAST_TWO_MEMBERS", message = "Для создания группы необходим собеседник" });
+                //if (request.MemberIds?.Count < 1)
+                //    return BadRequest(new { error = "GROUP_REQUIRES_AT_LEAST_TWO_MEMBERS", message = "Для создания группы необходим собеседник" });
 
                 if (string.IsNullOrWhiteSpace(request.Name))
                     return BadRequest(new { error = "GROUP_NAME_REQUIRED", message = "Для создания группы необходимо ввести название" });
@@ -176,7 +182,20 @@ namespace IDMChat.Controllers
                         .ToListAsync(ct);
 
                     if (companyCodes.Count > 1 || (companyCodes.Count == 1 && companyCodes[0] != currentUser.idm))
-                        return Forbid();
+                        return BadRequest(new { error = "MIXED_USERS_IN_GROUP", message = "Пользователи из разных компаний." });
+                    if (companyCodes.Count == 0)
+                        idm = currentUser.idm;
+                    else
+                        idm = companyCodes[0];
+                }
+                else
+                {
+                    if (request.MemberIds?.Count == 0)
+                        idm = currentUser.idm;
+                    else
+                    {
+                        idm = (await _db.Users.FirstOrDefaultAsync(u => request.MemberIds.First() == u.Id)).idm;
+                    }
                 }
             }
 
@@ -184,11 +203,12 @@ namespace IDMChat.Controllers
             var conversation = new Conversation
             {
                 Id = Guid.NewGuid(),
-                Type = request.Type,
-                Name = request.Type == ConversationType.Group ? request.Name : null,
+                Type = requestChatType,
+                Name = requestChatType == ConversationType.group ? request.Name : null,
                 AvatarUrl = request.AvatarUrl,
                 CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow,
+                Idm = idm
             };
 
             // 3. Добавление участников
@@ -203,7 +223,7 @@ namespace IDMChat.Controllers
                 {
                     ConversationId = conversation.Id,
                     UserId = memberId,
-                    IsAdmin = request.Type == ConversationType.Group && memberId == userId, // создатель - админ
+                    IsAdmin = requestChatType == ConversationType.group && memberId == userId, // создатель - админ
                     IsPinned = false,
                     IsMuted = false,
                     UnreadCount = 0,
@@ -212,8 +232,14 @@ namespace IDMChat.Controllers
                 });
             }
 
+            _db.Conversations.Add(conversation);
+            await _db.SaveChangesAsync(ct);
+
+            _db.ConversationMembers.AddRange(members);
+            await _db.SaveChangesAsync(ct);
+
             // 4. Системное сообщение для группы
-            if (request.Type == ConversationType.Group)
+            if (requestChatType == ConversationType.group)
             {
                 var systemMessage = new Message
                 {
@@ -226,18 +252,17 @@ namespace IDMChat.Controllers
                     IsDeleted = false,
                     ChannelId = 0
                 };
+                _db.Messages.Add(systemMessage);
+                await _db.SaveChangesAsync(ct);
 
                 conversation.LastMessageId = systemMessage.Id;
                 conversation.LastMessageText = systemMessage.Text;
                 conversation.LastMessageSenderId = userId;
                 conversation.LastMessageCreatedAt = systemMessage.CreatedAt;
 
-                _db.Messages.Add(systemMessage);
             }
 
             // 5. Сохранение
-            _db.Conversations.Add(conversation);
-            _db.ConversationMembers.AddRange(members);
             await _db.SaveChangesAsync(ct);
 
             // 6. Обновить кэш
@@ -249,7 +274,8 @@ namespace IDMChat.Controllers
 
             // 7. Вернуть объект чата
             var response = await BuildConversationResponse(conversation.Id, userId, ct);
-            return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, response);
+            //return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, response);
+            return StatusCode(201, response);
         }
 
         /// <summary>
@@ -268,7 +294,7 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
             // 2. Только групповые чаты можно обновлять
-            if (conversation.Type != ConversationType.Group)
+            if (conversation.Type != ConversationType.group)
                 return BadRequest(new { error = new { code = "NOT_GROUP", message = "Только групповые чаты можно обновлять" } });
 
             // 3. Проверка: является ли пользователь администратором группы
@@ -324,8 +350,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // 1. Находим чат и проверяем членство
-            var conversation = await _db.Conversations
-                .FirstOrDefaultAsync(c => c.Id == id, ct);
+            var conversation = await _db.Conversations.AsTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
 
             if (conversation == null)
                 return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
@@ -338,7 +363,7 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник чата" } });
 
             // 3. Direct чат — просто удаляем участника (покидаем)
-            if (conversation.Type == ConversationType.Direct)
+            if (conversation.Type == ConversationType.direct)
             {
                 _db.ConversationMembers.Remove(member);
 
@@ -360,28 +385,17 @@ namespace IDMChat.Controllers
             }
 
             // 4. Group чат — только администратор может удалить
-            if (conversation.Type == ConversationType.Group)
+            if (conversation.Type == ConversationType.group)
             {
                 if (!member.IsAdmin)
                     return StatusCode(403, new { error = new { code = "NOT_ADMIN", message = "Только администратор может удалить группу" } });
 
-                // Удаляем всех участников
-                var allMembers = await _db.ConversationMembers
-                    .Where(cm => cm.ConversationId == id)
-                    .ToListAsync(ct);
+                conversation.IsDeleted = true;
+                conversation.DeletedAt = DateTime.UtcNow;
+                conversation.DeletedBy = userId;
 
-                _db.ConversationMembers.RemoveRange(allMembers);
-
-                // Удаляем сообщения
-                var messages = await _db.Messages
-                    .Where(m => m.ConversationId == id)
-                    .ToListAsync(ct);
-
-                _db.Messages.RemoveRange(messages);
-
-                // Удаляем сам чат
-                _db.Conversations.Remove(conversation);
-
+                // Участников из чата не удаляем
+                // Сообщения не трогаем
                 await _db.SaveChangesAsync(ct);
 
                 // Инвалидируем кэш
@@ -465,7 +479,7 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
             // 2. Только групповые чаты
-            if (conversation.Type != ConversationType.Group)
+            if (conversation.Type != ConversationType.group)
                 return BadRequest(new { error = new { code = "NOT_GROUP", message = "Только в групповые чаты можно добавлять участников" } });
 
             // 3. Проверка: пользователь — администратор?
@@ -592,7 +606,7 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
             // 2. Только групповые чаты
-            if (conversation.Type != ConversationType.Group)
+            if (conversation.Type != ConversationType.group)
                 return BadRequest(new { error = new { code = "NOT_GROUP", message = "Только из групповых чатов можно удалять участников" } });
 
             // 3. Проверка: текущий пользователь — администратор?
@@ -1065,7 +1079,7 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
             // 2. Только групповые чаты
-            if (conversation.Type != ConversationType.Group)
+            if (conversation.Type != ConversationType.group)
                 return BadRequest(new { error = new { code = "NOT_GROUP", message = "Только групповые чаты могут иметь аватар" } });
 
             // 3. Проверка прав (только администратор)
@@ -1207,8 +1221,11 @@ namespace IDMChat.Controllers
         // Request DTO
         public class CreateConversationRequest
         {
+            /// <summary>
+            /// [Direct, Group]
+            /// </summary>
             [Required]
-            public ConversationType Type { get; set; }
+            public string Type { get; set; }
 
             [Required]
             public List<Guid> MemberIds { get; set; } = new();
@@ -1236,35 +1253,35 @@ namespace IDMChat.Controllers
 
         public class ConversationResponse
         {
-            public Guid Id { get; set; }
-            public ConversationType Type { get; set; }
-            public string? Name { get; set; }
-            public string? AvatarUrl { get; set; }
-            public bool IsPinned { get; set; }
-            public bool IsMuted { get; set; }
-            public List<MemberResponse> Members { get; set; } = new();
-            public LastMessageResponse? LastMessage { get; set; }
-            public int UnreadCount { get; set; }
-            public DateTime UpdatedAt { get; set; }
+            public Guid id { get; set; }
+            public string type { get; set; }
+            public string? name { get; set; }
+            public string? avatar_url { get; set; }
+            public bool is_pinned { get; set; }
+            public bool is_muted { get; set; }
+            public List<MemberResponse> members { get; set; } = new();
+            public LastMessageResponse? last_message { get; set; }
+            public int unread_count { get; set; }
+            public DateTime updated_at { get; set; }
         }
 
         public class MemberResponse
         {
-            public string? CustomStatus;
+            public string? custom_status;
 
-            public Guid Id { get; set; }
-            public string DisplayName { get; set; } = string.Empty;
-            public string? AvatarUrl { get; set; }
-            public string? Status { get; set; }
+            public Guid id { get; set; }
+            public string display_name { get; set; } = string.Empty;
+            public string? avatar_url { get; set; }
+            public string? status { get; set; }
         }
 
         public class LastMessageResponse
         {
-            public long Id { get; set; }
-            public string Text { get; set; } = string.Empty;
-            public MessageType Type { get; set; }
-            public Guid SenderId { get; set; }
-            public DateTime CreatedAt { get; set; }
+            public long id { get; set; }
+            public string text { get; set; } = string.Empty;
+            public MessageType type { get; set; }
+            public Guid sender_id { get; set; }
+            public DateTime created_at { get; set; }
         }
 
         #endregion
@@ -1280,35 +1297,35 @@ namespace IDMChat.Controllers
                     cm.IsMuted,
                     cm.UnreadCount,
                     Conversation = cm.Conversation,
-                    Members = cm.Conversation.Type == ConversationType.Group
+                    Members = cm.Conversation.Type == ConversationType.group
                         ? cm.Conversation.Members.Select(m => new MemberResponse
                         {
-                            Id = m.UserId,
-                            DisplayName = m.User.DisplayName,
-                            AvatarUrl = m.User.AvatarUrl,
-                            Status = m.User.IsOnline ? "online" : "offline", 
-                            CustomStatus = m.User.CustomStatus
+                            id = m.UserId,
+                            display_name = m.User.DisplayName,
+                            avatar_url = m.User.AvatarUrl,
+                            status = m.User.IsOnline ? "online" : "offline", 
+                            custom_status = m.User.CustomStatus
                         }).ToList()
                         : cm.Conversation.Members
                             .Where(m => m.UserId != userId)
                             .Select(m => new MemberResponse
                             {
-                                Id = m.UserId,
-                                DisplayName = m.User.DisplayName,
-                                AvatarUrl = m.User.AvatarUrl,
-                                Status = m.User.IsOnline ? "online" : "offline",
-                                CustomStatus = m.User.CustomStatus
+                                id = m.UserId,
+                                display_name = m.User.DisplayName,
+                                avatar_url = m.User.AvatarUrl,
+                                status = m.User.IsOnline ? "online" : "offline",
+                                custom_status = m.User.CustomStatus
                             }).ToList(),
                     LastMessage = cm.Conversation.LastMessageId != null
                         ? new LastMessageResponse
                         {
-                            Id = cm.Conversation.LastMessage.Id,
-                            Text = cm.Conversation.LastMessage.Text.Length > 100
+                            id = cm.Conversation.LastMessage.Id,
+                            text = cm.Conversation.LastMessage.Text.Length > 100
                                     ? cm.Conversation.LastMessage.Text.Substring(0, 100) + "..."
                                     : cm.Conversation.LastMessage.Text,
-                            Type = cm.Conversation.LastMessage.Type,
-                            SenderId = cm.Conversation.LastMessage.SenderId,
-                            CreatedAt = cm.Conversation.LastMessage.CreatedAt
+                            type = cm.Conversation.LastMessage.Type,
+                            sender_id = cm.Conversation.LastMessage.SenderId,
+                            created_at = cm.Conversation.LastMessage.CreatedAt
                         }
                         : null
                 })
@@ -1318,16 +1335,16 @@ namespace IDMChat.Controllers
 
             return new ConversationResponse
             {
-                Id = conversationId,
-                Type = data.Conversation.Type,
-                Name = data.Conversation.Name,
-                AvatarUrl = data.Conversation.AvatarUrl,
-                IsPinned = data.IsPinned,
-                IsMuted = data.IsMuted,
-                Members = data.Members,
-                LastMessage = data.LastMessage,
-                UnreadCount = data.UnreadCount,
-                UpdatedAt = data.Conversation.UpdatedAt
+                id = conversationId,
+                type = data.Conversation.Type.ToString(),
+                name = data.Conversation.Name,
+                avatar_url = data.Conversation.AvatarUrl,
+                is_pinned = data.IsPinned,
+                is_muted = data.IsMuted,
+                members = data.Members,
+                last_message = data.LastMessage,
+                unread_count = data.UnreadCount,
+                updated_at = data.Conversation.UpdatedAt
             };
         }
 

@@ -63,7 +63,9 @@ public class AuthController : ControllerBase
             Id = user.Id,
             Username = user.Username,
             DisplayName = user.DisplayName ?? user.Username,
-            AvatarUrl = user.AvatarUrl
+            AvatarUrl = user.AvatarUrl, 
+            IsOnline = true, 
+            LastSeenAt = user.LastSeenAt
         };
 
         var accessToken = GenerateAccessToken(userDto);
@@ -186,6 +188,30 @@ public class AuthController : ControllerBase
         });
     }
 
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout([FromBody] RefreshRequest request)
+    {
+        if (string.IsNullOrEmpty(request?.RefreshToken))
+        {
+            return NoContent();
+        }
+
+        // Ищем refresh token в БД
+        var refreshToken = await _dbContext.RefreshTokens
+            .Include(rt => rt.User)
+            .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken);
+
+        if (refreshToken == null)
+        {
+            return NoContent();
+        }
+
+        refreshToken.RevokedAt = DateTime.UtcNow;
+        _dbContext.RefreshTokens.Update(refreshToken);
+        await _dbContext.SaveChangesAsync();
+
+        return NoContent();
+    }
 
 
     public class RefreshRequest

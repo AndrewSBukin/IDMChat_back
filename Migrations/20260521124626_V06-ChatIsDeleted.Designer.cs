@@ -4,6 +4,7 @@ using IDMChat.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IDMChat.Migrations
 {
     [DbContext(typeof(ChatDbContext))]
-    partial class ChatDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260521124626_V06-ChatIsDeleted")]
+    partial class V06ChatIsDeleted
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -35,17 +38,11 @@ namespace IDMChat.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("DeletedBy")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<string>("Idm")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
-                    b.Property<bool>("IsDeleted")
+                    b.Property<bool?>("IsDeleted")
                         .HasColumnType("bit");
 
                     b.Property<bool>("IsWriteRestricted")
@@ -83,7 +80,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UpdatedAt");
 
-                    b.ToTable("Conversations", (string)null);
+                    b.ToTable("Conversations");
                 });
 
             modelBuilder.Entity("IDMChat.Models.ConversationMember", b =>
@@ -118,7 +115,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId", "IsPinned", "ConversationId");
 
-                    b.ToTable("ConversationMembers", (string)null);
+                    b.ToTable("ConversationMembers");
                 });
 
             modelBuilder.Entity("IDMChat.Models.FileAttachment", b =>
@@ -173,7 +170,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("FileAttachments", (string)null);
+                    b.ToTable("FileAttachments");
                 });
 
             modelBuilder.Entity("IDMChat.Models.Message", b =>
@@ -195,12 +192,6 @@ namespace IDMChat.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("DeletedBy")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
@@ -236,7 +227,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("ConversationId", "Id");
 
-                    b.ToTable("Messages", (string)null);
+                    b.ToTable("Messages");
                 });
 
             modelBuilder.Entity("IDMChat.Models.MessageReadReceipt", b =>
@@ -257,7 +248,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("MessageId", "UserId");
 
-                    b.ToTable("MessageReadReceipts", (string)null);
+                    b.ToTable("MessageReadReceipts");
                 });
 
             modelBuilder.Entity("IDMChat.Models.RefreshToken", b =>
@@ -296,7 +287,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens", (string)null);
+                    b.ToTable("RefreshTokens");
                 });
 
             modelBuilder.Entity("IDMChat.Models.User", b =>
@@ -393,7 +384,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("idm");
 
-                    b.ToTable("Users", (string)null);
+                    b.ToTable("Users");
                 });
 
             modelBuilder.Entity("IDMChat.Models.Conversation", b =>

@@ -52,6 +52,7 @@ namespace IDMChat.Controllers
                 DisplayName = request.DisplayName ?? request.Username,
                 AvatarUrl = request.AvatarUrl,
                 ConnectionId = string.Empty,
+                idm = request.Idm,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
@@ -72,6 +73,7 @@ namespace IDMChat.Controllers
             public string Username { get; set; } = string.Empty;
             public string Password { get; set; } = string.Empty;
             public string? DisplayName { get; set; }
+            public string? Idm { get; set; }
             public string? AvatarUrl { get; set; }
         }
     }

@@ -40,6 +40,8 @@ namespace IDMChat.Models
         public DateTime SentAt { get; set; } = DateTime.UtcNow;
 
         public bool IsDeleted { get; set; } = false;
+        public Guid? DeletedBy { get; set; } = null;
+        public DateTime? DeletedAt { get; set; } = null;
 
         public int ChannelId { get; set; }
 
