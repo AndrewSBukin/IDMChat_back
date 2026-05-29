@@ -2,6 +2,7 @@
 using BCrypt.Net;
 using IDMChat.Middleware;
 using IDMChat.Models;
+using IDMChat.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
@@ -18,12 +19,16 @@ using System.Text;
 public class UsersController : ControllerBase
 {
     private readonly ChatDbContext _dbContext;
-    private readonly IConfiguration _config;
+    private readonly IConfiguration _config; 
+    private readonly ChatStateCache _chatCache;
+    private readonly UserCache _userCache;
 
-    public UsersController(ChatDbContext dbContext, IConfiguration configuration)
+    public UsersController(ChatDbContext dbContext, IConfiguration configuration, ChatStateCache chatCache, UserCache userCache)
     {
         _dbContext = dbContext;
         _config = configuration;
+        _chatCache = chatCache;
+        _userCache = userCache;
     }
 
     public class UserDto

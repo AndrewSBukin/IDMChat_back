@@ -152,6 +152,9 @@ namespace IDMChat
                 options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
             });
 
+            builder.Logging.AddConsole();
+            builder.Logging.AddDebug(); // <-- ВАЖНО для вывода в VS
+            builder.Logging.AddEventSourceLogger();
 
             var app = builder.Build();
 

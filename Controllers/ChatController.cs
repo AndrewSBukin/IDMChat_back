@@ -328,6 +328,7 @@ namespace IDMChat.Controllers
             // 5. Обновляем timestamp
             conversation.UpdatedAt = DateTime.UtcNow;
 
+            _db.Conversations.Update(conversation);
             await _db.SaveChangesAsync(ct);
 
 

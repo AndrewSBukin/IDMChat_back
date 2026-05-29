@@ -78,7 +78,7 @@ namespace IDMChat.Controllers
 
             // 2. Проверка наличия файла
             if (file == null || file.Length == 0)
-                return BadRequest(new { error = new { code = "FILE_REQUIRED", message = "Файл обязателен" } });
+                return BadRequest(new { error = new { code = "FILE_REQUIRED", message = "Файл обязателен" } }); 
 
             // 3. Проверка размера (100MB)
             const long maxFileSize = 100 * 1024 * 1024;

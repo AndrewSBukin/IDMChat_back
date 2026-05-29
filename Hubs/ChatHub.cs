@@ -91,7 +91,6 @@ namespace IDMChat.Hubs
         public async Task SendMessage(Guid conversationId, string text, Guid tempId)
         {
             var userId = Context.GetUserId();
-
             try
             {
                 // 1. Дедупликация
