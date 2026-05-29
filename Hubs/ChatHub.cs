@@ -88,7 +88,16 @@ namespace IDMChat.Hubs
             await base.OnDisconnectedAsync(exception);
         }
 
-        public async Task SendMessage(Guid conversationId, string text, Guid tempId)
+        /// <summary>
+        /// Отправить сообщение в чат
+        /// </summary>
+        /// <param name="conversationId">ID чата</param>
+        /// <param name="text">Текст сообщения</param>
+        /// <param name="tempId">Временный ID клиента для дедупликации</param>
+        /// <param name="replyToMessageId">ID сообщения, на которое отвечаем</param>
+        /// <param name="type">Тип сообщения: text, image, video, file, voice</param>
+        /// <param name="attachmentIds">Список ID загруженных файлов</param>
+        public async Task SendMessage(Guid conversationId, string text, Guid tempId, long? replyToMessageId = null, string type = "text", List<Guid>? attachmentIds = null)
         {
             var userId = Context.GetUserId();
             try
@@ -112,22 +121,62 @@ namespace IDMChat.Hubs
                 if (chat.IsWriteRestricted && !chat.IsAdmin(userId))
                     throw new HubException("ONLY_ADMINS_CAN_WRITE");
 
-                // 3. Создание сообщения
+                // 3. Валидация параметров
+                var messageType = ParseMessageType(type);
+
+                object? replyToObj = null;
+                if (replyToMessageId.HasValue)
+                {
+                    var replyMessage = await _db.Messages
+                        .Include(m => m.Sender)
+                        .FirstOrDefaultAsync(m => m.Id == replyToMessageId
+                                                    && m.ConversationId == conversationId
+                                                    && !m.IsDeleted);
+                    if (replyMessage == null)
+                        throw new HubException("REPLY_TO_MESSAGE_NOT_FOUND");
+
+                    replyToObj = new
+                    {
+                        id = replyMessage.Id,
+                        sender_id = replyMessage.SenderId,
+                        sender_name = replyMessage.Sender.DisplayName,
+                        text = replyMessage.Text.Length > 100
+                                ? replyMessage.Text[..100] + "..."
+                                : replyMessage.Text,
+                        type = replyMessage.Type.ToString().ToLower()
+                    };
+                }
+
+                // 4. Создание сообщения
                 var message = new Message
                 {
                     ClientTempId = tempId,
                     ConversationId = conversationId,
                     SenderId = userId,
-                    Text = text,
+                    Text = text ?? string.Empty,
                     Type = MessageType.Text,
+                    ReplyToMessageId = replyToMessageId,
                     SentAt = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow,
                     ChannelId = 0
                 };
 
-                var truncatedText = text.Length > 100 ? text[..100] + "..." : text;
+                // 5. Привязка вложений
+                if (attachmentIds != null && attachmentIds.Any())
+                {
+                    var attachments = await _db.FileAttachments.AsTracking()
+                        .Where(a => attachmentIds.Contains(a.Id) && a.UserId == userId)
+                        .ToListAsync();
 
-                // 4. Сохранение в БД
+                    foreach (var attachment in attachments)
+                    {
+                        attachment.MessageId = message.Id;
+                    }
+                }
+
+                var truncatedText = (text ?? string.Empty).Length > 100 ? text[..100] + "..." : (text ?? string.Empty);
+
+                // 6. Сохранение в БД
                 _db.Messages.Add(message);
 
                 var conversation = await _db.Conversations.FindAsync(conversationId);
@@ -146,20 +195,24 @@ namespace IDMChat.Hubs
 
                 await _db.SaveChangesAsync(); // message.Id заполняется
 
-                // 5. Обновление кэша
+                // 7. Обновление кэша
                 _chatCache.UpdateLastMessage(conversationId, message, truncatedText);
                 _chatCache.IncrementUnreadCounts(conversationId, userId);
 
-                // 6. Подтверждение отправителю (сообщение сохранено на сервере = статус "sent")
+                // 8. Подтверждение отправителю
                 await Clients.Caller.SendAsync("message_confirmed", message.Id, tempId);
 
-                // 7. Рассылка остальным
+                // 9. Рассылка остальным
                 var messageDto = new
                 {
                     message.Id,
                     message.Text,
-                    SenderId = userId,
-                    message.CreatedAt
+                    sender_id = userId,
+                    created_at = message.CreatedAt,
+                    type = type,
+                    reply_to_id = replyToMessageId,
+                    reply_to = replyToObj,
+                    attachment_ids = attachmentIds
                 };
 
                 var onlineMembers = _userCache.GetOnlineMembers(chat.Members);
@@ -185,8 +238,7 @@ namespace IDMChat.Hubs
                     }
                 }
 
-                _logger.LogDebug("Message {MessageId} sent to conversation {ConversationId} by {UserId}",
-                    message.Id, conversationId, userId);
+                _logger.LogDebug("Message {MessageId} sent to conversation {ConversationId} by {UserId}", message.Id, conversationId, userId);
             }
             catch (HubException)
             {
@@ -197,6 +249,19 @@ namespace IDMChat.Hubs
                 _logger.LogError(ex, "Error sending message to {ConversationId}", conversationId);
                 throw new HubException("MESSAGE_SEND_FAILED");
             }
+        }
+
+        private MessageType ParseMessageType(string type)
+        {
+            return type?.ToLower() switch
+            {
+                "text" => MessageType.Text,
+                "image" => MessageType.Image,
+                "video" => MessageType.Video,
+                "file" => MessageType.File,
+                "voice" => MessageType.Voice,
+                _ => MessageType.Text
+            };
         }
 
         public async Task JoinConversation(Guid conversationId)

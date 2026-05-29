@@ -97,7 +97,14 @@
                 });
             }
             function send1() {
-                con1.invoke("SendMessage", "d737f44c-1c0c-43b8-9a9c-6c0a31d36b4d", "Hello!", generateGUID());
+                con1.invoke("SendMessage",
+                    "d737f44c-1c0c-43b8-9a9c-6c0a31d36b4d",  // conversationId (Guid)
+                    "Hello!",                                    // text (string)
+                    generateGUID(),                             // tempId (Guid)
+                    47,                                       // replyToMessageId (long?)
+                    "text",                                     // type (string)
+                    null                                        // attachmentIds (List<Guid>?)
+                );
             }
 
             function send2() {
