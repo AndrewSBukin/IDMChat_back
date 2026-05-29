@@ -1,12 +1,12 @@
 <html>
     <head>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+        <script src="signalr.min.js"></script>
         <script>
             //import * as signalR from "@microsoft/signalr";
             //import { MessagePackHubProtocol } from "@microsoft/signalr-protocol-msgpack";
 
-            const token1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjY2YWMzYjE0LWYwN2ItNDU2Yi1iNTMzLTk1MmNhMGRmMzdjYiIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL25hbWUiOiJzdHJpbmciLCJkaXNwbGF5X25hbWUiOiJCQW5kIiwiZXhwIjoxNzc5NDM5NDczLCJpc3MiOiJDaGF0U2VydmVyIiwiYXVkIjoiSURNQ2hhdCJ9.C2Bj9w767wTsQXhwK-1Vyx_xKcPhMAcQPidOmkG3J9A";
-            const token2 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjY5ZThlOTNhLTE1YzMtNGZiNS1hMWY5LTRlYzEwZGNiNGQ0OSIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL25hbWUiOiJ1c2VyMSIsImRpc3BsYXlfbmFtZSI6InVzZXIxIiwiZXhwIjoxNzc5NDQwODI5LCJpc3MiOiJDaGF0U2VydmVyIiwiYXVkIjoiSURNQ2hhdCJ9.E_lLnSy7yi6pdWtVptV2A6Q2oVWSvMaF1d4puK8vUG8";
+            var token1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjY2YWMzYjE0LWYwN2ItNDU2Yi1iNTMzLTk1MmNhMGRmMzdjYiIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL25hbWUiOiJzdHJpbmciLCJkaXNwbGF5X25hbWUiOiJCQW5kIiwiZXhwIjoxNzc5NDM5NDczLCJpc3MiOiJDaGF0U2VydmVyIiwiYXVkIjoiSURNQ2hhdCJ9.C2Bj9w767wTsQXhwK-1Vyx_xKcPhMAcQPidOmkG3J9A";
+            var token2 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjY5ZThlOTNhLTE1YzMtNGZiNS1hMWY5LTRlYzEwZGNiNGQ0OSIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL25hbWUiOiJ1c2VyMSIsImRpc3BsYXlfbmFtZSI6InVzZXIxIiwiZXhwIjoxNzc5NDQwODI5LCJpc3MiOiJDaGF0U2VydmVyIiwiYXVkIjoiSURNQ2hhdCJ9.E_lLnSy7yi6pdWtVptV2A6Q2oVWSvMaF1d4puK8vUG8";
 
             const evnames = [
                 "message_confirmed",
@@ -25,8 +25,41 @@
                 "message_deleted",
                 "message_edited"]
 
-            function login1() {
+            async function login1() {
+                token1 = await login("string","string")
+            }
+            async function login2() {
+                token2 = await login("user1", "user1")
+            }
+            async function login(username, password) {
+                try {
+                    const response = await fetch('/api/v1/auth/login', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            username: username,
+                            password: password
+                        })
+                    });
 
+                    if (!response.ok) {
+                        const error = await response.json();
+                        console.error("Login failed:", error);
+                        return null;
+                    }
+
+                    const data = await response.json();
+                    const token = data.access_token; // или data.token, зависит от вашего API
+
+                    console.log("Login successful, token:", token);
+                    return token;
+
+                } catch (error) {
+                    console.error("Login error:", error);
+                    return null;
+                }
             }
             function connect1(){
                 con1 = new signalR.HubConnectionBuilder()
@@ -81,6 +114,9 @@
     </head>
     <body>
         <h1>IDMCHat Hub</h1>
+        <button onclick="login1()">Login1</button>
+        <button onclick="login2()">Login2</button>
+
         <button onclick="connect1()">Connect1</button>
         <button onclick="connect2()">Connect2</button>
 

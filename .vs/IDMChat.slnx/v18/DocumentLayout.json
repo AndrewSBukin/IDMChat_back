@@ -58,8 +58,7 @@
               "RelativeToolTip": "Utils\\UserCache.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAqwAsAAABRAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-05-22T08:51:59.082Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-22T08:51:59.082Z"
             },
             {
               "$type": "Document",
@@ -71,8 +70,7 @@
               "RelativeToolTip": "Controllers\\UserController.cs",
               "ViewState": "AgIAACgAAAAAAAAAAAA6wDQAAAAiAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-05-22T08:49:05.668Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-22T08:49:05.668Z"
             },
             {
               "$type": "Document",
@@ -84,8 +82,7 @@
               "RelativeToolTip": "Program.cs",
               "ViewState": "AgIAACwAAAAAAAAAAAAAAC8AAAAMAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-05-22T07:02:30.452Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-05-22T07:02:30.452Z"
             },
             {
               "$type": "Document",
@@ -95,7 +92,7 @@
               "RelativeDocumentMoniker": "wwwroot\\index.html",
               "ToolTip": "C:\\Projects\\IDMChat_back\\wwwroot\\index.html",
               "RelativeToolTip": "wwwroot\\index.html",
-              "ViewState": "AgIAABUAAAAAAAAAAAAAACsAAABFAAAAAAAAAA==",
+              "ViewState": "AgIAAGIAAAAAAAAAAAAAAHgAAAA2AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
               "WhenOpened": "2026-05-21T19:47:59.41Z",
               "EditorCaption": ""
@@ -123,8 +120,7 @@
               "RelativeToolTip": "Controllers\\ChatController.cs",
               "ViewState": "AgIAABkAAAAAAAAAAAAAACgAAAAJAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-29T16:29:07.619Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-29T16:29:07.619Z"
             }
           ]
         }
