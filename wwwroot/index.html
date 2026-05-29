@@ -24,6 +24,10 @@
                 "message_read",
                 "message_deleted",
                 "message_edited"]
+
+            function login1() {
+
+            }
             function connect1(){
                 con1 = new signalR.HubConnectionBuilder()
                     .withUrl(`/chatHub?access_token=${token1}`)
