@@ -722,46 +722,86 @@ namespace IDMChat.Controllers
 
             var messages = await query
                 .Take(limit)
-                .Select(m => new MessageDto
+                .Select(m => new
                 {
-                    id = m.Id,
-                    conversation_id = m.ConversationId,
-                    sender_id = m.SenderId,
-                    sender = new UserBriefDto
-                    {
-                        id = m.Sender.Id,
-                        display_name = m.Sender.DisplayName,
-                        avatar_url = m.Sender.AvatarUrl
-                    },
-                    type = m.Type.ToString().ToLower(),
-                    text = m.Text,
-                    is_edited = m.UpdatedAt.HasValue,
-                    is_deleted = m.IsDeleted,
-                    created_at = m.CreatedAt,
-                    updated_at = m.UpdatedAt,
-                    attachments = null,
-                    reply_to = null,
-                    read_by = null
+                    m.Id,
+                    m.ConversationId,
+                    m.SenderId,
+                    m.Sender,
+                    m.Type,
+                    m.Text,
+                    m.UpdatedAt,
+                    m.IsDeleted,
+                    m.CreatedAt,
+                    m.ReplyToMessageId
                 })
                 .ToListAsync(ct);
 
-            var hasMore = messages.Count > limit;
+            var replyToIds = messages
+                .Where(m => m.ReplyToMessageId.HasValue)
+                .Select(m => m.ReplyToMessageId.Value)
+                .Distinct()
+                .ToList();
+            var replyMessages = new Dictionary<long, ReplyPreviewDto>();
+            if (replyToIds.Any())
+            {
+                var replies = await _db.Messages
+                    .Where(m => replyToIds.Contains(m.Id) && !m.IsDeleted)
+                    .Include(m => m.Sender)
+                    .Select(m => new ReplyPreviewDto
+                    {
+                        id = m.Id,
+                        sender_id = m.SenderId,
+                        sender_name = m.Sender.DisplayName,
+                        text = m.Text.Length > 100 ? m.Text.Substring(0, 100) + "..." : m.Text,
+                        type = m.Type.ToString().ToLower()
+                    })
+                    .ToListAsync(ct);
+
+                replyMessages = replies.ToDictionary(r => r.id);
+            }
+
+            var messageDtos = messages.Select(m => new MessageDto
+            {
+                id = m.Id,
+                conversation_id = m.ConversationId,
+                sender_id = m.SenderId,
+                sender = new UserBriefDto
+                {
+                    id = m.Sender.Id,
+                    display_name = m.Sender.DisplayName,
+                    avatar_url = m.Sender.AvatarUrl
+                },
+                type = m.Type.ToString().ToLower(),
+                text = m.Text,
+                is_edited = m.UpdatedAt.HasValue,
+                is_deleted = m.IsDeleted,
+                created_at = m.CreatedAt,
+                updated_at = m.UpdatedAt,
+                attachments = null,
+                reply_to_id = m.ReplyToMessageId,
+                reply_to = m.ReplyToMessageId.HasValue && replyMessages.ContainsKey(m.ReplyToMessageId.Value)
+                    ? replyMessages[m.ReplyToMessageId.Value]
+                    : null,
+                read_by = null
+            }).ToList();
+
+            var hasMore = messageDtos.Count > limit;
 
             // Обрезаем до нужного количества
             if (hasMore)
-                messages = messages.Take(limit).ToList();
+                messageDtos = messageDtos.Take(limit).ToList();
 
             // Для режима before — возвращаем в правильном порядке (от старых к новым)
             if (before.HasValue)
             {
-                messages = messages.OrderBy(m => m.id).ToList();
+                messageDtos = messageDtos.OrderBy(m => m.id).ToList();
             }
 
             return Ok(new
             {
-                Messages = messages,
-                HasMore = hasMore,
-                messages.Count
+                messages = messageDtos,
+                has_more = hasMore
             });
         }
 
@@ -782,11 +822,15 @@ namespace IDMChat.Controllers
 
             // 2. Только автор может редактировать
             if (message.SenderId != userId)
-                return StatusCode(403, new { error = new { code = "NOT_AUTHOR", message = "Вы не автор сообщения" } });
+                return StatusCode(403, new { error = new { code = "NOT_OWN_MESSAGE", message = "Вы не автор сообщения" } });
 
             // 3. Только текстовые сообщения можно редактировать
             if (message.Type != MessageType.Text)
                 return BadRequest(new { error = new { code = "INVALID_TYPE", message = "Можно редактировать только текстовые сообщения" } });
+
+            // истёк лимит редактирования, >24ч
+            if ((DateTime.Now - message.CreatedAt).TotalHours > 24)
+                return StatusCode(422, new { error = new { code = "EDIT_TIME_EXPIRED", message = "Можно редактировать только в течение 24 часов" } });
 
             // 4. Обновляем
             message.Text = request.Text;
@@ -835,7 +879,7 @@ namespace IDMChat.Controllers
 
             // 2. Только автор может удалить
             if (message.SenderId != userId)
-                return StatusCode(403, new { error = new { code = "NOT_AUTHOR", message = "Вы не автор сообщения" } });
+                return StatusCode(403, new { error = new { code = "NOT_OWN_MESSAGE", message = "Вы не автор сообщения" } });
 
             // 3. Soft delete
             message.IsDeleted = true;
@@ -901,7 +945,7 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник чата" } });
 
             // 2. Получаем последнее сообщение в чате (если не указано)
-            var upToMessageId = request.UpToMessageId;
+            var upToMessageId = request.last_read_message_id;
             if (upToMessageId == null)
             {
                 upToMessageId = await _db.Messages
@@ -978,10 +1022,9 @@ namespace IDMChat.Controllers
                     });
             }
 
-            return Ok(new
+            return StatusCode(204, new
             {
-                unread_count = unreadCount,
-                last_read_message_id = upToMessageId
+                unread_count = unreadCount
             });
         }
         #endregion
@@ -1187,7 +1230,7 @@ namespace IDMChat.Controllers
 
         public class MarkAsReadRequest
         {
-            public long? UpToMessageId { get; set; }
+            public long? last_read_message_id { get; set; }
         }
 
         public class PinRequest

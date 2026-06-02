@@ -13,6 +13,7 @@
         public List<AttachmentDto>? attachments { get; set; }
 
         public ReplyPreviewDto? reply_to { get; set; }
+        public long? reply_to_id { get; set; }
 
         public bool is_edited { get; set; }
         public bool is_deleted { get; set; }
