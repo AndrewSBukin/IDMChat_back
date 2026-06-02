@@ -935,97 +935,108 @@ namespace IDMChat.Controllers
         [HttpPost("{id}/read")]
         public async Task<IActionResult> MarkAsRead(Guid id, [FromBody] MarkAsReadRequest request, CancellationToken ct = default)
         {
-            var userId = HttpContext.GetCurrentUserId();
-
-            // 1. Находим участника
-            var member = await _db.ConversationMembers
-                .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
-
-            if (member == null)
-                return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник чата" } });
-
-            // 2. Получаем последнее сообщение в чате (если не указано)
-            var upToMessageId = request.last_read_message_id;
-            if (upToMessageId == null)
+            try
             {
-                upToMessageId = await _db.Messages
-                    .Where(m => m.ConversationId == id && !m.IsDeleted)
-                    .OrderByDescending(m => m.Id)
-                    .Select(m => (long?)m.Id)
-                    .FirstOrDefaultAsync(ct);
-            }
+                var userId = HttpContext.GetCurrentUserId();
 
-            if (upToMessageId == null)
-                return Ok(new { unread_count = 0 });
+                // 1. Находим участника
+                var member = await _db.ConversationMembers
+                    .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
 
-            // 3. Проверяем, что сообщение существует и в этом чате
-            var messageExists = await _db.Messages
-                .AnyAsync(m => m.Id == upToMessageId && m.ConversationId == id, ct);
+                if (member == null)
+                    return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник чата" } });
 
-            if (!messageExists)
-                return NotFound(new { error = new { code = "MESSAGE_NOT_FOUND", message = "Сообщение не найдено в этом чате" } });
-
-            var oldLastReadId = member.LastReadMessageId ?? 0;
-
-            // 4. Если уже прочитано до этого сообщения или дальше - ничего не делаем
-            if (oldLastReadId >= upToMessageId)
-                return Ok(new { unread_count = member.UnreadCount });
-
-            // 5. Обновляем LastReadMessageId
-            member.LastReadMessageId = upToMessageId;
-
-            // 6. Находим сообщения, которые теперь стали прочитанными (чужие сообщения)
-            var newlyReadMessages = await _db.Messages
-                .Where(m => m.ConversationId == id
-                            && m.Id > oldLastReadId
-                            && m.Id <= upToMessageId
-                            && m.SenderId != userId)  // не свои сообщения
-                .Select(m => new { m.Id, m.SenderId })
-                .ToListAsync(ct);
-
-            // 7. Сохраняем факты прочтения (опционально, если нужна история)
-            if (newlyReadMessages.Any())
-            {
-                var receipts = newlyReadMessages.Select(m => new MessageReadReceipt
+                // 2. Получаем последнее сообщение в чате (если не указано)
+                var upToMessageId = request.last_read_message_id;
+                if (upToMessageId == null)
                 {
-                    MessageId = m.Id,
-                    UserId = userId,
-                    ReadAt = DateTime.UtcNow
-                });
-                _db.MessageReadReceipts.AddRange(receipts);
-            }
+                    upToMessageId = await _db.Messages
+                        .Where(m => m.ConversationId == id && !m.IsDeleted)
+                        .OrderByDescending(m => m.Id)
+                        .Select(m => (long?)m.Id)
+                        .FirstOrDefaultAsync(ct);
+                }
 
-            // 8. Пересчитываем UnreadCount
-            var unreadCount = await _db.Messages
-                .CountAsync(m => m.ConversationId == id && m.Id > upToMessageId && !m.IsDeleted, ct);
+                if (upToMessageId == null)
+                    return Ok(new { unread_count = 0 });
 
-            member.UnreadCount = unreadCount;
+                // 3. Проверяем, что сообщение существует и в этом чате
+                var messageExists = await _db.Messages
+                    .AnyAsync(m => m.Id == upToMessageId && m.ConversationId == id, ct);
 
-            await _db.SaveChangesAsync(ct);
+                if (!messageExists)
+                    return NotFound(new { error = new { code = "MESSAGE_NOT_FOUND", message = "Сообщение не найдено в этом чате" } });
 
-            // 9. Обновляем кэш
-            _cache.ResetUnreadCount(id, userId);
+                var oldLastReadId = member.LastReadMessageId ?? 0;
 
-            // 10. Уведомляем отправителей о прочтении
-            var bySender = newlyReadMessages.GroupBy(m => m.SenderId);
+                // 4. Если уже прочитано до этого сообщения или дальше - ничего не делаем
+                if (oldLastReadId >= upToMessageId)
+                    return Ok(new { unread_count = member.UnreadCount });
 
-            foreach (var senderGroup in bySender)
-            {
-                await _hubContext.Clients
-                    .User(senderGroup.Key.ToString())
-                    .SendAsync("message_read", new
+                // 5. Обновляем LastReadMessageId
+                member.LastReadMessageId = upToMessageId;
+
+                // 6. Находим сообщения, которые теперь стали прочитанными (чужие сообщения)
+                var newlyReadMessages = await _db.Messages
+                    .Where(m => m.ConversationId == id
+                                && m.Id > oldLastReadId
+                                && m.Id <= upToMessageId
+                                && m.SenderId != userId)  // не свои сообщения
+                    .Select(m => new { m.Id, m.SenderId })
+                    .ToListAsync(ct);
+
+                // 7. Сохраняем факты прочтения (опционально, если нужна история)
+                if (newlyReadMessages.Any())
+                {
+                    var receipts = newlyReadMessages.Select(m => new MessageReadReceipt
                     {
-                        conversation_id = id,
-                        last_read_message_id = upToMessageId,
-                        user_id = userId,
-                        read_at = DateTime.UtcNow
+                        MessageId = m.Id,
+                        UserId = userId,
+                        ReadAt = DateTime.UtcNow
                     });
-            }
+                    _db.MessageReadReceipts.AddRange(receipts);
+                }
 
-            return StatusCode(204, new
+                // 8. Пересчитываем UnreadCount
+                var unreadCount = await _db.Messages
+                    .CountAsync(m => m.ConversationId == id && m.Id > upToMessageId && !m.IsDeleted, ct);
+
+                member.UnreadCount = unreadCount;
+
+                await _db.SaveChangesAsync(ct);
+
+                // 9. Обновляем кэш
+                _cache.ResetUnreadCount(id, userId);
+
+                // 10. Уведомляем отправителей о прочтении
+                var bySender = newlyReadMessages.GroupBy(m => m.SenderId);
+
+                foreach (var senderGroup in bySender)
+                {
+                    await _hubContext.Clients
+                        .User(senderGroup.Key.ToString())
+                        .SendAsync("message_read", new
+                        {
+                            conversation_id = id,
+                            last_read_message_id = upToMessageId,
+                            user_id = userId,
+                            read_at = DateTime.UtcNow
+                        });
+                }
+
+                return StatusCode(204, new
+                {
+                    unread_count = unreadCount
+                });
+            }
+            catch(Exception ex)
             {
-                unread_count = unreadCount
-            });
+                return StatusCode(204, new
+                {
+                    unread_count = 0,
+                    error = ex.Message
+                });
+            }
         }
         #endregion
 

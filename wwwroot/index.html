@@ -98,12 +98,14 @@
             }
             function send1() {
                 con1.invoke("SendMessage",
-                    "294497f0-e6ff-426b-9a7d-bd36747d8785",  // conversationId (Guid)
-                    "Hello!",                                    // text (string)
-                    generateGUID(),                             // tempId (Guid)
-                    47,                                       // replyToMessageId (long?)
-                    "text",                                     // type (string)
-                    null                                        // attachmentIds (List<Guid>?)
+                    {
+                        conversation_id: "294497f0-e6ff-426b-9a7d-bd36747d8785",
+                        text: "Hello!",
+                        temp_id: generateGUID(),
+                        reply_to_message_id: 47,
+                        type: "text",
+                        attachment_ids: null
+                    }
                 );
             }
 
