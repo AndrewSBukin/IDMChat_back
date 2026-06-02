@@ -60,7 +60,7 @@ namespace IDMChat.Controllers
         {
             var userId = HttpContext.GetCurrentUserId();
 
-            var user = await _db.Users
+            var user = await _db.Users.AsTracking()
                 .FirstOrDefaultAsync(u => u.Id == userId, ct);
 
             if (user == null)

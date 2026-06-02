@@ -786,7 +786,7 @@ namespace IDMChat.Controllers
                 read_by = null
             }).ToList();
 
-            var hasMore = messageDtos.Count > limit;
+            var hasMore = messages.Count > limit;
 
             // Обрезаем до нужного количества
             if (hasMore)
