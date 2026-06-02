@@ -246,8 +246,8 @@ namespace IDMChat.Hubs
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending message to {ConversationId}", conversationId);
-                throw new HubException("MESSAGE_SEND_FAILED");
+                _logger.LogError(ex, "Error sending message to {ConversationId} {message}", conversationId, ex.Message);
+                throw new HubException("MESSAGE_SEND_FAILED", ex);
             }
         }
 

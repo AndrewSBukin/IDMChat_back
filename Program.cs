@@ -19,6 +19,8 @@ using Swashbuckle.AspNetCore.SwaggerGen;
 using System.ComponentModel.DataAnnotations;
 using System.Text;
 using System.Text.Json;
+using NLog;
+using NLog.Web;
 
 namespace IDMChat
 {
@@ -155,6 +157,7 @@ namespace IDMChat
             builder.Logging.AddConsole();
             builder.Logging.AddDebug(); // <-- ВАЖНО для вывода в VS
             builder.Logging.AddEventSourceLogger();
+            builder.Host.UseNLog();
 
             var app = builder.Build();
 
