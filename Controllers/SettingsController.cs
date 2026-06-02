@@ -43,10 +43,10 @@ namespace IDMChat.Controllers
 
             return Ok(new UserSettingsResponse
             {
-                NotificationsEnabled = user.NotificationsEnabled ?? true,
-                SoundEnabled = user.SoundEnabled ?? true,
-                Language = user.Language ?? "ru",
-                Theme = user.Theme ?? "system"
+                notifications_enabled = user.NotificationsEnabled ?? true,
+                sound_enabled = user.SoundEnabled ?? true,
+                language = user.Language ?? "ru",
+                theme = user.Theme ?? "system"
             });
         }
 
@@ -67,17 +67,17 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "USER_NOT_FOUND", message = "Пользователь не найден" } });
 
             // Обновляем только переданные поля
-            if (request.NotificationsEnabled.HasValue)
-                user.NotificationsEnabled = request.NotificationsEnabled.Value;
+            if (request.notifications_enabled.HasValue)
+                user.NotificationsEnabled = request.notifications_enabled.Value;
 
-            if (request.SoundEnabled.HasValue)
-                user.SoundEnabled = request.SoundEnabled.Value;
+            if (request.sound_enabled.HasValue)
+                user.SoundEnabled = request.sound_enabled.Value;
 
-            if (!string.IsNullOrWhiteSpace(request.Language))
-                user.Language = request.Language;
+            if (!string.IsNullOrWhiteSpace(request.language))
+                user.Language = request.language;
 
-            if (!string.IsNullOrWhiteSpace(request.Theme))
-                user.Theme = request.Theme;
+            if (!string.IsNullOrWhiteSpace(request.theme))
+                user.Theme = request.theme;
 
             await _db.SaveChangesAsync(ct);
 
@@ -86,10 +86,10 @@ namespace IDMChat.Controllers
 
             return Ok(new UserSettingsResponse
             {
-                NotificationsEnabled = user.NotificationsEnabled ?? true,
-                SoundEnabled = user.SoundEnabled ?? true,
-                Language = user.Language ?? "ru",
-                Theme = user.Theme ?? "system"
+                notifications_enabled = user.NotificationsEnabled ?? true,
+                sound_enabled = user.SoundEnabled ?? true,
+                language = user.Language ?? "ru",
+                theme = user.Theme ?? "system"
             });
         }
     }
@@ -97,22 +97,22 @@ namespace IDMChat.Controllers
     // Request DTO
     public class UpdateSettingsRequest
     {
-        public bool? NotificationsEnabled { get; set; }
-        public bool? SoundEnabled { get; set; }
+        public bool? notifications_enabled { get; set; }
+        public bool? sound_enabled { get; set; }
 
         [MaxLength(10)]
-        public string? Language { get; set; }
+        public string? language { get; set; }
 
         [RegularExpression("^(system|light|dark)$", ErrorMessage = "Theme must be 'system', 'light', or 'dark'")]
-        public string? Theme { get; set; }
+        public string? theme { get; set; }
     }
 
     // Response DTO
     public class UserSettingsResponse
     {
-        public bool NotificationsEnabled { get; set; }
-        public bool SoundEnabled { get; set; }
-        public string Language { get; set; } = "ru";
-        public string Theme { get; set; } = "system";
+        public bool notifications_enabled { get; set; }
+        public bool sound_enabled { get; set; }
+        public string language { get; set; } = "ru";
+        public string theme { get; set; } = "system";
     }
 }
