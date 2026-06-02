@@ -291,18 +291,18 @@ namespace IDMChat.Hubs
                     .Take(50)
                     .Select(m => new MessageDto
                     {
-                        Id = m.Id,
-                        ConversationId = m.ConversationId,
-                        SenderId = m.SenderId,
-                        Sender = new UserBriefDto
+                        id = m.Id,
+                        conversation_id = m.ConversationId,
+                        sender_id = m.SenderId,
+                        sender = new UserBriefDto
                         {
-                            Id = m.Sender.Id,
-                            DisplayName = m.Sender.DisplayName,
-                            AvatarUrl = m.Sender.AvatarUrl
+                            id = m.Sender.Id,
+                            display_name = m.Sender.DisplayName,
+                            avatar_url = m.Sender.AvatarUrl
                         },
-                        Type = m.Type.ToString().ToLower(),
-                        Text = m.Text,
-                        CreatedAt = m.CreatedAt
+                        type = m.Type.ToString().ToLower(),
+                        text = m.Text,
+                        created_at = m.CreatedAt
                     })
                     .ToListAsync();
 

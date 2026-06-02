@@ -2,50 +2,50 @@
 {
     public class MessageDto
     {
-        public long Id { get; set; }
-        public Guid ConversationId { get; set; }
+        public long id { get; set; }
+        public Guid conversation_id { get; set; }
 
-        public Guid SenderId { get; set; }
-        public UserBriefDto Sender { get; set; } = null!;
+        public Guid sender_id { get; set; }
+        public UserBriefDto sender { get; set; } = null!;
 
-        public string Type { get; set; } = string.Empty;
-        public string? Text { get; set; }
-        public List<AttachmentDto>? Attachments { get; set; }
+        public string type { get; set; } = string.Empty;
+        public string? text { get; set; }
+        public List<AttachmentDto>? attachments { get; set; }
 
-        public ReplyPreviewDto? ReplyTo { get; set; }
+        public ReplyPreviewDto? reply_to { get; set; }
 
-        public bool IsEdited { get; set; }
-        public bool IsDeleted { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public DateTime? UpdatedAt { get; set; }
+        public bool is_edited { get; set; }
+        public bool is_deleted { get; set; }
+        public DateTime created_at { get; set; }
+        public DateTime? updated_at { get; set; }
 
         // ⚠️ Для личных чатов, для групп - null
-        public List<Guid>? ReadBy { get; set; }
+        public List<Guid>? read_by { get; set; }
     }
 
     public class AttachmentDto
     {
-        public Guid Id { get; set; }
-        public string FileName { get; set; } = string.Empty;
-        public long FileSize { get; set; }
-        public string MimeType { get; set; } = string.Empty;
-        public string Url { get; set; } = string.Empty;
-        public string? ThumbnailUrl { get; set; }
+        public Guid id { get; set; }
+        public string file_name { get; set; } = string.Empty;
+        public long file_size { get; set; }
+        public string mime_type { get; set; } = string.Empty;
+        public string url { get; set; } = string.Empty;
+        public string? thumbnail_url { get; set; }
     }
 
     public class ReplyPreviewDto
     {
-        public long Id { get; set; }
-        public Guid SenderId { get; set; }
-        public string SenderName { get; set; } = string.Empty;
-        public string Text { get; set; } = string.Empty;
-        public string Type { get; set; } = string.Empty; // text, image, etc.
+        public long id { get; set; }
+        public Guid sender_id { get; set; }
+        public string sender_name { get; set; } = string.Empty;
+        public string text { get; set; } = string.Empty;
+        public string type { get; set; } = string.Empty; // text, image, etc.
     }
 
     public class UserBriefDto
     {
-        public Guid Id { get; set; }
-        public string DisplayName { get; set; } = string.Empty;
-        public string? AvatarUrl { get; set; }
+        public Guid id { get; set; }
+        public string display_name { get; set; } = string.Empty;
+        public string? avatar_url { get; set; }
     }
 }

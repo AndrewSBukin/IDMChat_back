@@ -417,7 +417,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // Находим запись участника
-            var member = await _db.ConversationMembers
+            var member = await _db.ConversationMembers.AsTracking()
                 .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
 
             if (member == null)
@@ -445,7 +445,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // Находим запись участника
-            var member = await _db.ConversationMembers
+            var member = await _db.ConversationMembers.AsTracking()
                 .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
 
             if (member == null)
@@ -724,24 +724,24 @@ namespace IDMChat.Controllers
                 .Take(limit)
                 .Select(m => new MessageDto
                 {
-                    Id = m.Id,
-                    ConversationId = m.ConversationId,
-                    SenderId = m.SenderId,
-                    Sender = new UserBriefDto
+                    id = m.Id,
+                    conversation_id = m.ConversationId,
+                    sender_id = m.SenderId,
+                    sender = new UserBriefDto
                     {
-                        Id = m.Sender.Id,
-                        DisplayName = m.Sender.DisplayName,
-                        AvatarUrl = m.Sender.AvatarUrl
+                        id = m.Sender.Id,
+                        display_name = m.Sender.DisplayName,
+                        avatar_url = m.Sender.AvatarUrl
                     },
-                    Type = m.Type.ToString().ToLower(),
-                    Text = m.Text,
-                    IsEdited = m.UpdatedAt.HasValue,
-                    IsDeleted = m.IsDeleted,
-                    CreatedAt = m.CreatedAt,
-                    UpdatedAt = m.UpdatedAt,
-                    Attachments = null,
-                    ReplyTo = null,
-                    ReadBy = null
+                    type = m.Type.ToString().ToLower(),
+                    text = m.Text,
+                    is_edited = m.UpdatedAt.HasValue,
+                    is_deleted = m.IsDeleted,
+                    created_at = m.CreatedAt,
+                    updated_at = m.UpdatedAt,
+                    attachments = null,
+                    reply_to = null,
+                    read_by = null
                 })
                 .ToListAsync(ct);
 
@@ -754,7 +754,7 @@ namespace IDMChat.Controllers
             // Для режима before — возвращаем в правильном порядке (от старых к новым)
             if (before.HasValue)
             {
-                messages = messages.OrderBy(m => m.Id).ToList();
+                messages = messages.OrderBy(m => m.id).ToList();
             }
 
             return Ok(new

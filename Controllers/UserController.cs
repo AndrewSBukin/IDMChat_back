@@ -37,6 +37,7 @@ public class UsersController : ControllerBase
         public string username { get; set; } = string.Empty;
         public string display_name { get; set; } = string.Empty;
         public string? avatar_url { get; set; }
+        public string? status { get; set; }
         public bool is_online { get; set; }
         public DateTime last_seen_at { get; set; }
     }
@@ -58,6 +59,7 @@ public class UsersController : ControllerBase
                 id = u.Id,
                 username = u.Username,
                 display_name = string.IsNullOrEmpty(u.DisplayName) ? u.Username : u.DisplayName,
+                status = u.Status.ToString().ToLowerInvariant(),
                 avatar_url = u.AvatarUrl,
                 is_online = u.IsOnline,
                 last_seen_at = u.LastSeenAt
@@ -78,6 +80,7 @@ public class UsersController : ControllerBase
                 id = u.Id,
                 username = u.Username,
                 display_name = string.IsNullOrEmpty(u.DisplayName) ? u.Username : u.DisplayName,
+                status = u.Status.ToString().ToLowerInvariant(),
                 avatar_url = u.AvatarUrl,
                 is_online = u.IsOnline,
                 last_seen_at = u.LastSeenAt
