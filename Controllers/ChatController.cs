@@ -112,7 +112,7 @@ namespace IDMChat.Controllers
             {
                 id = data.Conversation.Id,
                 type = data.Conversation.Type.ToString(),
-                name = data.Conversation.Name,
+                name = data.Conversation.Type == ConversationType.direct? data.Members?.FirstOrDefault()?.display_name : data.Conversation.Name,
                 avatar_url = data.Conversation.AvatarUrl,
                 is_pinned = data.IsPinned,
                 is_muted = data.IsMuted,
