@@ -348,8 +348,9 @@ namespace IDMChat.Hubs
                 conversation.LastMessageSenderId = userId;
                 conversation.LastMessageCreatedAt = message.CreatedAt;
                 conversation.UpdatedAt = message.CreatedAt;
+                _db.Conversations.Update(conversation);
 
-                var members = await _db.ConversationMembers
+                var members = await _db.ConversationMembers.AsTracking()
                     .Where(cm => cm.ConversationId == msg.conversation_id && cm.UserId != userId)
                     .ToListAsync();
 

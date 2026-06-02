@@ -34,6 +34,9 @@ namespace IDMChat.Models
         [JsonPropertyName("userId")]
         public string? UserId { get; init; }
 
+        [JsonPropertyName("userIdClaim")]
+        public string? UserIdClaim { get; init; }
+
         [JsonPropertyName("clientIp")]
         public string? ClientIp { get; init; }
 

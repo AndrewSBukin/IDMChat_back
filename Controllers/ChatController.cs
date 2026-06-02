@@ -473,7 +473,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // 1. Находим чат
-            var conversation = await _db.Conversations
+            var conversation = await _db.Conversations.AsTracking()
                 .FirstOrDefaultAsync(c => c.Id == id, ct);
 
             if (conversation == null)
@@ -600,7 +600,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // 1. Находим чат
-            var conversation = await _db.Conversations
+            var conversation = await _db.Conversations.AsTracking()
                 .FirstOrDefaultAsync(c => c.Id == id, ct);
 
             if (conversation == null)
@@ -814,7 +814,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // 1. Находим сообщение
-            var message = await _db.Messages.Include(m => m.Conversation)
+            var message = await _db.Messages.Include(m => m.Conversation).AsTracking()
                 .FirstOrDefaultAsync(m => m.Id == messageId && m.ConversationId == id, ct);
 
             if (message == null)
@@ -871,7 +871,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // 1. Находим сообщение
-            var message = await _db.Messages.Include(m => m.Conversation)
+            var message = await _db.Messages.Include(m => m.Conversation).AsTracking()
                 .FirstOrDefaultAsync(m => m.Id == messageId && m.ConversationId == id, ct);
 
             if (message == null)
@@ -940,7 +940,7 @@ namespace IDMChat.Controllers
                 var userId = HttpContext.GetCurrentUserId();
 
                 // 1. Находим участника
-                var member = await _db.ConversationMembers
+                var member = await _db.ConversationMembers.AsTracking()
                     .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
 
                 if (member == null)

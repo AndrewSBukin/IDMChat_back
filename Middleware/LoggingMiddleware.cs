@@ -1,6 +1,7 @@
 ﻿using IDMChat.Models;
 using IDMChat.Services;
 using System.Diagnostics;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -47,6 +48,12 @@ namespace IDMChat.Middleware
 
                 var responseBody = await CaptureResponseBodyAsync(context, responseMemoryStream);
 
+                string userIdClaim = null;
+                if (context.User.Identity?.IsAuthenticated == true)
+                {
+                    userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                }
+
                 // 6. Enqueue structured log (non‑blocking)
                 _logQueue.Enqueue(new RequestResponseLog
                 {
@@ -60,6 +67,7 @@ namespace IDMChat.Middleware
                     DurationMs = stopwatch.ElapsedMilliseconds,
                     Timestamp = DateTime.UtcNow,
                     UserId = context.User?.FindFirst("sub")?.Value,
+                    UserIdClaim = userIdClaim,
                     ClientIp = context.Connection.RemoteIpAddress?.ToString()
                 });
 
