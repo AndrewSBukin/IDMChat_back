@@ -95,7 +95,7 @@ namespace IDMChat.Controllers
                             text = cm.Conversation.LastMessage.Text.Length > 100
                                 ? cm.Conversation.LastMessage.Text.Substring(0, 100) + "..."
                                 : cm.Conversation.LastMessage.Text,
-                            type = cm.Conversation.LastMessage.Type,
+                            type = cm.Conversation.LastMessage.Type.ToString().ToLower(),
                             sender_id = cm.Conversation.LastMessage.SenderId,
                             created_at = cm.Conversation.LastMessage.CreatedAt
                         }
@@ -131,7 +131,7 @@ namespace IDMChat.Controllers
 
 
         [HttpPost]
-        public async Task<ActionResult> CreateConversation([FromBody] CreateConversationRequest request, CancellationToken ct = default)
+        public async Task<IActionResult> CreateConversation([FromBody] CreateConversationRequest request, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
@@ -274,8 +274,8 @@ namespace IDMChat.Controllers
 
             // 7. Вернуть объект чата
             var response = await BuildConversationResponse(conversation.Id, userId, ct);
-            //return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, response);
-            return StatusCode(201, response);
+            return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, response);
+            //return StatusCode(201, response);
         }
 
         /// <summary>
@@ -573,7 +573,7 @@ namespace IDMChat.Controllers
                 var fullConversation = await BuildConversationResponse(id, newMemberId, ct);
                 await _hubContext.Clients
                     .User(newMemberId.ToString())
-                    .SendAsync("conversation_new", fullConversation.Value);
+                    .SendAsync("conversation_new", fullConversation);
             }
 
             // Уведомить остальных участников
@@ -1280,7 +1280,7 @@ namespace IDMChat.Controllers
         {
             public long id { get; set; }
             public string text { get; set; } = string.Empty;
-            public MessageType type { get; set; }
+            public string type { get; set; } = string.Empty;
             public Guid sender_id { get; set; }
             public DateTime created_at { get; set; }
         }
@@ -1288,7 +1288,7 @@ namespace IDMChat.Controllers
         #endregion
         
         // BuildConversationResponse (вспомогательный метод)
-        private async Task<ActionResult<ConversationResponse>> BuildConversationResponse(Guid conversationId, Guid userId, CancellationToken ct)
+        private async Task<ConversationResponse> BuildConversationResponse(Guid conversationId, Guid userId, CancellationToken ct)
         {
             var data = await _db.ConversationMembers
                 .Where(cm => cm.ConversationId == conversationId && cm.UserId == userId)
@@ -1324,7 +1324,7 @@ namespace IDMChat.Controllers
                             text = cm.Conversation.LastMessage.Text.Length > 100
                                     ? cm.Conversation.LastMessage.Text.Substring(0, 100) + "..."
                                     : cm.Conversation.LastMessage.Text,
-                            type = cm.Conversation.LastMessage.Type,
+                            type = cm.Conversation.LastMessage.Type.ToString().ToLower(),
                             sender_id = cm.Conversation.LastMessage.SenderId,
                             created_at = cm.Conversation.LastMessage.CreatedAt
                         }
@@ -1332,13 +1332,15 @@ namespace IDMChat.Controllers
                 })
                 .FirstOrDefaultAsync(ct);
 
-            if (data == null) return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
+            if (data == null)
+                throw new NotFoundException("{\"error\": {\"code\": \"CONVERSATION_NOT_FOUND\", \"message\": \"Диалог не найден\"}}");
+            //return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
             return new ConversationResponse
             {
                 id = conversationId,
                 type = data.Conversation.Type.ToString(),
-                name = data.Conversation.Name,
+                name = data.Conversation.Type == ConversationType.direct ? data.Members?.FirstOrDefault()?.display_name : data.Conversation.Name,
                 avatar_url = data.Conversation.AvatarUrl,
                 is_pinned = data.IsPinned,
                 is_muted = data.IsMuted,

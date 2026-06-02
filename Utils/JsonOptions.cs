@@ -8,18 +8,18 @@ namespace IDMChat.Utils
     {
         public static readonly JsonSerializerOptions Default = new()
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
             WriteIndented = false,                    // NO pretty print
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             PropertyNameCaseInsensitive = false,      // faster exact matching
-            DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
+            DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, // minimal escaping
         };
 
         // For logs that need readability (debugging only)
         public static readonly JsonSerializerOptions Pretty = new()
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
             WriteIndented = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
