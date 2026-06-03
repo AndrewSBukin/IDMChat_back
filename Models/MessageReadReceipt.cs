@@ -3,10 +3,9 @@ using System.ComponentModel.DataAnnotations;
 
 namespace IDMChat.Models
 {
-    [Index(nameof(MessageId), nameof(UserId))]
+    [PrimaryKey(nameof(MessageId), nameof(UserId))]
     public class MessageReadReceipt
     {
-        [Key]
         public long MessageId { get; set; }
 
         public Guid UserId { get; set; }

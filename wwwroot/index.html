@@ -26,38 +26,72 @@
                 "message_edited"]
 
             async function login1() {
-                token1 = await login("string","string")
+                let data = await call("auth/login", { username: "string", password: "string" }, 'POST');
+                if (data) {
+                    token1 = data.access_token
+                    document.getElementById("key1").value = token1;
+                    document.getElementById("key11").value = data.refresh_token;
+                }
             }
+
+            async function refresh1() {
+                let data = await call("auth/refresh", {
+                    refreshToken: document.getElementById("key11").value
+                }, 'POST');
+                if (data) {
+                    token1 = data.access_token;
+                    document.getElementById("key1").value = data.access_token;
+                }
+            }
+
+
+            async function get_chats() {
+                let data = await call("conversations",null, 'GET');
+                if (data) {
+                    console.log(data);
+                    if (!document.getElementById("chat1").value)
+                        document.getElementById("chat1").value = data.conversations[0].id
+                }
+            }
+
+            async function read(n) {
+                let data = await call("conversations/" + document.getElementById("chat1").value + "/read", {
+                    "last_read_message_id": document.getElementById("readn").value
+                }, 'POST');
+            }
+
             async function login2() {
-                token2 = await login("user1", "user1")
+                let data = await call("auth/login", { username: "user1", password: "user1" }, 'POST');
+                if (data) {
+                    token1 = data.access_token
+                    document.getElementById("key1").value = token1;
+                    document.getElementById("key11").value = data.refresh_token;
+                }
             }
-            async function login(username, password) {
+            async function call(fn, p1, m) {
                 try {
-                    const response = await fetch('/api/v1/auth/login', {
-                        method: 'POST',
+                    const response = await fetch('/api/v1/' + fn, {
+                        method: m,
                         headers: {
-                            'Content-Type': 'application/json'
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + token1
                         },
-                        body: JSON.stringify({
-                            username: username,
-                            password: password
-                        })
+                        body: p1? JSON.stringify(p1): null
                     });
 
                     if (!response.ok) {
                         const error = await response.json();
-                        console.error("Login failed:", error);
+                        console.error(fn + " failed:", error);
                         return null;
                     }
 
                     const data = await response.json();
-                    const token = data.access_token; // или data.token, зависит от вашего API
 
-                    console.log("Login successful, token:", token);
-                    return token;
+                    console.log(fn + " successful");
+                    return data;
 
                 } catch (error) {
-                    console.error("Login error:", error);
+                    console.error(fn + " error:", error);
                     return null;
                 }
             }
@@ -99,24 +133,57 @@
             function send1() {
                 con1.invoke("SendMessage",
                     {
-                        conversation_id: "294497f0-e6ff-426b-9a7d-bd36747d8785",
-                        text: "Hello!",
-                        temp_id: generateGUID(),
-                        reply_to_message_id: 47,
-                        type: "text",
-                        attachment_ids: null
+                        "conversation_id": document.getElementById("chat1").value,
+                        "text": "Hello!",
+                        "temp_id": generateGUID(),
+                        "reply_to_message_id": null,
+                        "type": "text",
+                        "attachment_ids": null
+                    }
+                );
+            }
+
+            function openchat() {
+                con1.invoke("JoinConversation",
+                    {
+                        "conversation_id": document.getElementById("chat1").value
+                    }
+                );
+            }
+            function closechat() {
+                con1.invoke("LeaveConversation",
+                    {
+                        "conversation_id": document.getElementById("chat1").value
+                    }
+                );
+            }
+
+            function typing(v) {
+                con1.invoke(v ? "SendTyping" :"StopTyping",
+                    {
+                        "conversation_id": document.getElementById("chat1").value
                     }
                 );
             }
 
             function send2() {
-                con2.invoke("SendMessage",
-                    "294497f0-e6ff-426b-9a7d-bd36747d8785",  // conversationId (Guid)
-                    "Hello!",                                    // text (string)
-                    generateGUID(),                             // tempId (Guid)
-                    null,                                       // replyToMessageId (long?)
-                    "text",                                     // type (string)
-                    null                                        // attachmentIds (List<Guid>?)
+                //con2.invoke("SendMessage",
+                //    "294497f0-e6ff-426b-9a7d-bd36747d8785",  // conversationId (Guid)
+                //    "Hello!",                                    // text (string)
+                //    generateGUID(),                             // tempId (Guid)
+                //    null,                                       // replyToMessageId (long?)
+                //    "text",                                     // type (string)
+                //    null                                        // attachmentIds (List<Guid>?)
+                //);
+
+                con2.invoke("SendMessage", {
+                        "conversation_id": "294497f0-e6ff-426b-9a7d-bd36747d8785",
+                        "text": "test",
+                    "temp_id": generateGUID(),
+                        "reply_to_message_id": null,
+                        "type": "text",
+                        "attachment_ids": null
+                    }                                       
                 );
             }
             function generateGUID() {
@@ -132,11 +199,26 @@
         <h1>IDMCHat Hub</h1>
         <button onclick="login1()">Login1</button>
         <button onclick="login2()">Login2</button>
-
+        <label for="key1">auth key</label>
+        <input id="key1" type="text" readonly />
+        <label for="key11">refresh key</label>
+        <input id="key11" type="text" />
+        <button onclick="refresh1()">Refresh1</button>
+        <button onclick="get_chats()">Chats</button>
         <button onclick="connect1()">Connect1</button>
-        <button onclick="connect2()">Connect2</button>
-
+        <br />
+        <label for="chat1">Chat</label>
+        <input id="chat1" type="text" />
+        <button onclick="openchat()">Open</button>
+        <button onclick="closechat()">Close</button>
+        <button onclick="typing(1)">StartTyping</button>
+        <button onclick="typing(0)">StopTyping</button>
         <button onclick="send1()">Send1</button>
-        <button onclick="send2()">Send2</button>
+        <br />
+        <div id="chats"></div>
+        <br />
+        <label for="readn">ReadUpto</label>
+        <input id="readn" type="number" />
+        <button onclick="read()">Read</button>
     </body>
 </html>

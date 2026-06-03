@@ -1,4 +1,5 @@
 ﻿using IDMChat.Controllers;
+using IDMChat.Domain;
 using IDMChat.DTO;
 using IDMChat.Models;
 using IDMChat.Utils;
@@ -341,6 +342,7 @@ namespace IDMChat.Hubs
 
                 // 6. Сохранение в БД
                 _db.Messages.Add(message);
+                await _db.SaveChangesAsync(); // message.Id заполняется
 
                 var conversation = await _db.Conversations.FindAsync(msg.conversation_id);
                 conversation.LastMessageId = message.Id;
@@ -357,7 +359,7 @@ namespace IDMChat.Hubs
                 foreach (var member in members)
                     member.UnreadCount++;
 
-                await _db.SaveChangesAsync(); // message.Id заполняется
+                await _db.SaveChangesAsync();
 
                 // 7. Обновление кэша
                 _chatCache.UpdateLastMessage(msg.conversation_id, message, truncatedText);
@@ -408,6 +410,11 @@ namespace IDMChat.Hubs
             {
                 throw;
             }
+            catch (NotFoundException ex)
+            {
+                _logger.LogError(ex, "Error sending message to {ConversationId} conversation not found", msg.conversation_id);
+                throw new HubException("MESSAGE_SEND_FAILED", ex);
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error sending message to {ConversationId} {message}", msg.conversation_id, ex.Message);
@@ -428,27 +435,32 @@ namespace IDMChat.Hubs
             };
         }
 
-        public async Task JoinConversation(Guid conversationId)
+
+        public class ConversationRequest
+        {
+            public Guid conversation_id { get; set; }
+        }
+        public async Task JoinConversation(ConversationRequest data)
         {
             var userId = Context.GetUserId();
 
             // Проверяем, что пользователь участник чата
             var isMember = await _db.ConversationMembers
-                .AnyAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
+                .AnyAsync(cm => cm.ConversationId == data.conversation_id && cm.UserId == userId);
 
             if (!isMember)
                 throw new HubException("NOT_MEMBER");
 
-            await Groups.AddToGroupAsync(Context.ConnectionId, conversationId.ToString());
+            await Groups.AddToGroupAsync(Context.ConnectionId, data.conversation_id.ToString());
 
             // Отправляем последние непрочитанные сообщения (только для этого чата)
             var member = await _db.ConversationMembers
-                .FirstOrDefaultAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
+                .FirstOrDefaultAsync(cm => cm.ConversationId == data.conversation_id && cm.UserId == userId);
 
             if (member?.UnreadCount > 0)
             {
                 var unreadMessages = await _db.Messages
-                    .Where(m => m.ConversationId == conversationId
+                    .Where(m => m.ConversationId == data.conversation_id
                                 && m.Id > (member.LastReadMessageId ?? 0)
                                 && !m.IsDeleted)
                     .OrderBy(m => m.Id)
@@ -472,52 +484,52 @@ namespace IDMChat.Hubs
 
                 await Clients.Caller.SendAsync("unread_messages", new
                 {
-                    conversation_id = conversationId,
+                    conversation_id = data.conversation_id,
                     messages = unreadMessages
                 });
 
                 // Сбрасываем счётчик непрочитанных в кэше
-                _chatCache.ResetUnreadCount(conversationId, userId);
+                _chatCache.ResetUnreadCount(data.conversation_id, userId);
             }
 
-            _logger.LogDebug("User {UserId} joined conversation {ConversationId}", userId, conversationId);
+            _logger.LogDebug("User {UserId} joined conversation {ConversationId}", userId, data.conversation_id);
         }
 
-        public async Task LeaveConversation(Guid conversationId)
+        public async Task LeaveConversation(ConversationRequest data)
         {
             var userId = Context.GetUserId();
-            await Groups.RemoveFromGroupAsync(Context.ConnectionId, conversationId.ToString());
-            _logger.LogDebug("User {UserId} left conversation {ConversationId}", userId, conversationId);
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, data.conversation_id.ToString());
+            _logger.LogDebug("User {UserId} left conversation {ConversationId}", userId, data.conversation_id);
         }
 
-        public async Task SendTyping(Guid conversationId)
+        public async Task SendTyping(ConversationRequest data)
         {
             var userId = Context.GetUserId();
 
             // Проверяем, что пользователь участник чата (быстрая проверка через кэш)
-            var chat = await _chatCache.GetConversationAsync(conversationId);
+            var chat = await _chatCache.GetConversationAsync(data.conversation_id);
             if (!chat.IsMember(userId))
                 return; // тихо игнорируем
 
-            await Clients.Group(conversationId.ToString()).SendAsync("typing_start", new
+            await Clients.Group(data.conversation_id.ToString()).SendAsync("typing_start", new
             {
-                conversation_id = conversationId,
+                conversation_id = data.conversation_id,
                 user_id = userId,
                 user_name = Context.User?.FindFirst(ClaimTypes.Name)?.Value ?? userId.ToString()
             });
         }
 
-        public async Task StopTyping(Guid conversationId)
+        public async Task StopTyping(ConversationRequest data)
         {
             var userId = Context.GetUserId();
 
-            var chat = await _chatCache.GetConversationAsync(conversationId);
+            var chat = await _chatCache.GetConversationAsync(data.conversation_id);
             if (!chat.IsMember(userId))
                 return;
 
-            await Clients.Group(conversationId.ToString()).SendAsync("typing_stop", new
+            await Clients.Group(data.conversation_id.ToString()).SendAsync("typing_stop", new
             {
-                conversation_id = conversationId,
+                conversation_id = data.conversation_id,
                 user_id = userId
             });
         }
