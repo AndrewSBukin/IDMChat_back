@@ -129,6 +129,84 @@ namespace IDMChat.Controllers
             });
         }
 
+        [HttpGet("pinned")]
+        public async Task<ActionResult<ConversationsResponse>> GetPinnedConversations(CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            // 1. Один запрос: все чаты + участники + последнее сообщение
+            var conversationsData = await _db.ConversationMembers
+                .Where(cm => cm.UserId == userId && !cm.Conversation.IsDeleted && cm.IsPinned)
+                .OrderByDescending(cm => cm.Conversation.UpdatedAt)
+                .Select(cm => new
+                {
+                    cm.IsPinned,
+                    cm.IsMuted,
+                    cm.UnreadCount,
+                    Conversation = cm.Conversation,
+
+                    // Участники (только для group, для direct - все)
+                    Members = cm.Conversation.Type == ConversationType.group
+                        ? cm.Conversation.Members
+                        .Where(m => !m.Conversation.IsDeleted)
+                        .Select(m => new MemberResponse
+                        {
+                            id = m.UserId,
+                            display_name = m.User.DisplayName,
+                            avatar_url = m.User.AvatarUrl,
+                            status = m.User.IsOnline ? "online" : "offline"
+                        }).ToList()
+                        : cm.Conversation.Members
+                            .Where(m => m.UserId != userId)
+                            .Select(m => new MemberResponse
+                            {
+                                id = m.UserId,
+                                display_name = m.User.DisplayName,
+                                avatar_url = m.User.AvatarUrl,
+                                status = m.User.IsOnline ? "online" : "offline"
+                            }).ToList(),
+
+                    // Последнее сообщение (из денормализованного поля)
+                    LastMessage = cm.Conversation.LastMessageId != null
+                        ? new LastMessageResponse
+                        {
+                            id = cm.Conversation.LastMessage!.Id,
+                            text = cm.Conversation.LastMessage.Text.Length > 100
+                                ? cm.Conversation.LastMessage.Text.Substring(0, 100) + "..."
+                                : cm.Conversation.LastMessage.Text,
+                            type = cm.Conversation.LastMessage.Type.ToString().ToLower(),
+                            sender_id = cm.Conversation.LastMessage.SenderId,
+                            created_at = cm.Conversation.LastMessage.CreatedAt
+                        }
+                        : null
+                })
+                .ToListAsync(ct);
+
+            // 2. Получить total (отдельный запрос, но легкий)
+            var total = await _db.ConversationMembers
+                .Where(cm => cm.UserId == userId && !cm.Conversation.IsDeleted)
+                .CountAsync(ct);
+
+            var conversations = conversationsData.Select(data => new ConversationResponse
+            {
+                id = data.Conversation.Id,
+                type = data.Conversation.Type.ToString(),
+                name = data.Conversation.Type == ConversationType.direct ? data.Members?.FirstOrDefault()?.display_name : data.Conversation.Name,
+                avatar_url = data.Conversation.AvatarUrl,
+                is_pinned = data.IsPinned,
+                is_muted = data.IsMuted,
+                members = data.Members,
+                last_message = data.LastMessage,
+                unread_count = data.UnreadCount,
+                updated_at = data.Conversation.UpdatedAt
+            }).ToList();
+
+            return Ok(new ConversationsResponse
+            {
+                Conversations = conversations,
+                Total = total
+            });
+        }
 
         [HttpPost]
         public async Task<IActionResult> CreateConversation([FromBody] CreateConversationRequest request, CancellationToken ct = default)

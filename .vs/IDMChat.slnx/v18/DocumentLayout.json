@@ -3,16 +3,16 @@
   "WorkspaceRootPath": "C:\\Projects\\IDMChat_back\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\controllers\\chatcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:controllers\\chatcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\hubs\\chathub.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:hubs\\chathub.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\wwwroot\\index.html||{40D31677-CBC0-4297-A9EF-89D907823A98}",
       "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:wwwroot\\index.html||{40D31677-CBC0-4297-A9EF-89D907823A98}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\controllers\\chatcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:controllers\\chatcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -70,7 +70,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 16,
+          "SelectedChildIndex": 17,
           "Children": [
             {
               "$type": "Bookmark",
@@ -203,7 +203,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 2,
               "Title": "index.html",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\wwwroot\\index.html",
               "RelativeDocumentMoniker": "wwwroot\\index.html",
@@ -255,26 +255,26 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "ChatHub.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Hubs\\ChatHub.cs",
               "RelativeDocumentMoniker": "Hubs\\ChatHub.cs",
               "ToolTip": "C:\\Projects\\IDMChat_back\\Hubs\\ChatHub.cs",
               "RelativeToolTip": "Hubs\\ChatHub.cs",
-              "ViewState": "AgIAALUBAAAAAAAAAAAUwPsBAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAABUAAAAAAAAAAAAiwCEAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-05-21T19:19:44.032Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 0,
               "Title": "ChatController.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Controllers\\ChatController.cs",
               "RelativeDocumentMoniker": "Controllers\\ChatController.cs",
               "ToolTip": "C:\\Projects\\IDMChat_back\\Controllers\\ChatController.cs",
               "RelativeToolTip": "Controllers\\ChatController.cs",
-              "ViewState": "AgIAAIcDAAAAAAAAAAAAAKsDAAA8AAAAAAAAAA==",
+              "ViewState": "AgIAAIMAAAAAAAAAAAAqwJYAAAA+AAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-04-29T16:29:07.619Z",
               "EditorCaption": ""
