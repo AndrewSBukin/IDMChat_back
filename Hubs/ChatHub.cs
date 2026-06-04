@@ -325,6 +325,10 @@ namespace IDMChat.Hubs
                     ChannelId = 0
                 };
 
+                // 6. Сохранение в БД
+                _db.Messages.Add(message);
+                await _db.SaveChangesAsync(); // message.Id заполняется
+
                 // 5. Привязка вложений
                 if (msg.attachment_ids != null && msg.attachment_ids.Any())
                 {
@@ -339,10 +343,6 @@ namespace IDMChat.Hubs
                 }
 
                 var truncatedText = (msg.text ?? string.Empty).Length > 100 ? msg.text[..100] + "..." : (msg.text ?? string.Empty);
-
-                // 6. Сохранение в БД
-                _db.Messages.Add(message);
-                await _db.SaveChangesAsync(); // message.Id заполняется
 
                 var conversation = await _db.Conversations.FindAsync(msg.conversation_id);
                 conversation.LastMessageId = message.Id;

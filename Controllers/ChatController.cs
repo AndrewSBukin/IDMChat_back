@@ -799,7 +799,7 @@ namespace IDMChat.Controllers
             }
 
             var messages = await query
-                .Take(limit)
+                .Take(limit + 1)
                 .Select(m => new
                 {
                     m.Id,
@@ -839,6 +839,12 @@ namespace IDMChat.Controllers
                 replyMessages = replies.ToDictionary(r => r.id);
             }
 
+            var hasMore = messages.Count > limit;
+
+            // Обрезаем до нужного количества
+            if (hasMore)
+                messages = messages.Take(limit).ToList();
+
             var messageDtos = messages.Select(m => new MessageDto
             {
                 id = m.Id,
@@ -863,12 +869,6 @@ namespace IDMChat.Controllers
                     : null,
                 read_by = null
             }).ToList();
-
-            var hasMore = messages.Count > limit;
-
-            // Обрезаем до нужного количества
-            if (hasMore)
-                messageDtos = messageDtos.Take(limit).ToList();
 
             // Для режима before — возвращаем в правильном порядке (от старых к новым)
             if (before.HasValue)
