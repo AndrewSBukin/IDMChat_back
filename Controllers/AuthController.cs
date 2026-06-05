@@ -60,12 +60,12 @@ public class AuthController : ControllerBase
         // Генерируем токены
         var userDto = new UserDto
         {
-            Id = user.Id,
-            Username = user.Username,
-            DisplayName = user.DisplayName ?? user.Username,
-            AvatarUrl = user.AvatarUrl, 
-            IsOnline = true, 
-            LastSeenAt = user.LastSeenAt
+            id = user.Id,
+            username = user.Username,
+            display_name = user.DisplayName ?? user.Username,
+            avatar_url = user.AvatarUrl, 
+            is_online = true, 
+            last_seen_at = user.LastSeenAt
         };
 
         var accessToken = GenerateAccessToken(userDto);
@@ -94,7 +94,7 @@ public class AuthController : ControllerBase
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {
-        if (string.IsNullOrEmpty(request?.RefreshToken))
+        if (string.IsNullOrEmpty(request?.refresh_token))
         {
             return Unauthorized(new
             {
@@ -109,7 +109,7 @@ public class AuthController : ControllerBase
         // Ищем refresh token в БД
         var refreshToken = await _dbContext.RefreshTokens
             .Include(rt => rt.User)
-            .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken);
+            .FirstOrDefaultAsync(rt => rt.Token == request.refresh_token);
 
         if (refreshToken == null)
         {
@@ -167,10 +167,10 @@ public class AuthController : ControllerBase
         // Создаем новый access token
         var userDto = new UserDto
         {
-            Id = user.Id,
-            Username = user.Username,
-            DisplayName = user.DisplayName ?? user.Username,
-            AvatarUrl = user.AvatarUrl
+            id = user.Id,
+            username = user.Username,
+            display_name = user.DisplayName ?? user.Username,
+            avatar_url = user.AvatarUrl
         };
 
         var accessToken = GenerateAccessToken(userDto);
@@ -191,7 +191,7 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     public async Task<IActionResult> Logout([FromBody] RefreshRequest request)
     {
-        if (string.IsNullOrEmpty(request?.RefreshToken))
+        if (string.IsNullOrEmpty(request?.refresh_token))
         {
             return NoContent();
         }
@@ -199,7 +199,7 @@ public class AuthController : ControllerBase
         // Ищем refresh token в БД
         var refreshToken = await _dbContext.RefreshTokens
             .Include(rt => rt.User)
-            .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken);
+            .FirstOrDefaultAsync(rt => rt.Token == request.refresh_token);
 
         if (refreshToken == null)
         {
@@ -216,26 +216,26 @@ public class AuthController : ControllerBase
 
     public class RefreshRequest
     {
-        public string RefreshToken { get; set; } = string.Empty;
+        public string refresh_token { get; set; } = string.Empty;
     }
     
     public class UserDto
     {
-        public Guid Id { get; set; }
-        public string Username { get; set; } = string.Empty;
-        public string DisplayName { get; set; } = string.Empty;
-        public string? AvatarUrl { get; set; }
-        public bool IsOnline { get; set; }
-        public DateTime LastSeenAt { get; set; }
+        public Guid id { get; set; }
+        public string username { get; set; } = string.Empty;
+        public string display_name { get; set; } = string.Empty;
+        public string? avatar_url { get; set; }
+        public bool is_online { get; set; }
+        public DateTime last_seen_at { get; set; }
     }
 
     private string GenerateAccessToken(UserDto user)
     {
         var claims = new[]
         {
-        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new Claim(ClaimTypes.Name, user.Username),
-        new Claim("display_name", user.DisplayName ?? user.Username)
+        new Claim(ClaimTypes.NameIdentifier, user.id.ToString()),
+        new Claim(ClaimTypes.Name, user.username),
+        new Claim("display_name", user.display_name ?? user.username)
     };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
