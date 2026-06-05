@@ -352,6 +352,17 @@ namespace IDMChat.Controllers
 
             // 7. Вернуть объект чата
             var response = await BuildConversationResponse(conversation.Id, userId, ct);
+
+            // Уведомление участников (кроме себя)
+            var otherMembers = allMemberIds.Where(id => id != userId).ToList();
+            foreach (var newMemberId in otherMembers)
+            {
+                var fullConversation = await BuildConversationResponse(conversation.Id, newMemberId, ct);
+                await _hubContext.Clients
+                    .User(newMemberId.ToString())
+                    .SendAsync("conversation_new", fullConversation, ct);
+            }
+
             return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, response);
             //return StatusCode(201, response);
         }
