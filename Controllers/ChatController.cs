@@ -513,7 +513,7 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник чата" } });
 
             // Обновляем
-            member.IsPinned = request.IsPinned;
+            member.IsPinned = request.is_pinned;
             await _db.SaveChangesAsync(ct);
 
             var response = await BuildConversationResponse(id, userId, ct);
@@ -541,14 +541,14 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник чата" } });
 
             // Обновляем
-            member.IsMuted = request.IsMuted;
+            member.IsMuted = request.is_muted;
             await _db.SaveChangesAsync(ct);
 
             var response = await BuildConversationResponse(id, userId, ct);
             await _hubContext.Clients.Group(id.ToString()).SendAsync("conversation_updated", response);
 
             // Обновляем кэш (чтобы при отправке сообщений проверять is_muted)
-            _cache.UpdateMuteStatus(id, userId, request.IsMuted);
+            _cache.UpdateMuteStatus(id, userId, request.is_muted);
 
             return Ok(new { is_muted = member.IsMuted });
         }
@@ -960,7 +960,7 @@ namespace IDMChat.Controllers
         /// <summary>
         /// Получить список пользователей, прочитавших сообщение
         /// </summary>
-        [HttpGet("messages/{messageId}/read-by")]
+        [HttpGet("messages/{messageId}/readby")]
         public async Task<IActionResult> GetMessageReadBy(
             long messageId,
             CancellationToken ct = default)
@@ -1483,7 +1483,7 @@ namespace IDMChat.Controllers
         public class PinRequest
         {
             [Required]
-            public bool IsPinned { get; set; }
+            public bool is_pinned { get; set; }
         }
 
         // Request DTO (можно поместить внутри контроллера или вынести в отдельный файл)
@@ -1499,7 +1499,7 @@ namespace IDMChat.Controllers
         public class MuteRequest
         {
             [Required]
-            public bool IsMuted { get; set; }
+            public bool is_muted { get; set; }
         }
 
         public class AddMembersRequest
