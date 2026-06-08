@@ -20,8 +20,9 @@
         public DateTime created_at { get; set; }
         public DateTime? updated_at { get; set; }
 
-        // ⚠️ Для личных чатов, для групп - null
-        public List<Guid>? read_by { get; set; }
+        public int read_count { get; set; }
+        // ⚠️ Для личных чатов, для групп от 5 человек - null
+        public List<UserBriefDto>? read_by { get; set; }
     }
 
     public class AttachmentDto

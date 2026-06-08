@@ -7,6 +7,14 @@
       "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:controllers\\chatcontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
+      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\models\\messagereadreceipt.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:models\\messagereadreceipt.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\dto\\messagedto.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:dto\\messagedto.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|c:\\projects\\idmchat_back\\controllers\\filescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{BE207769-3140-98F3-50A3-6C2D89EDD6F9}|IDMChat.csproj|solutionrelative:controllers\\filescontroller.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -38,7 +46,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 9,
+          "SelectedChildIndex": 11,
           "Children": [
             {
               "$type": "Bookmark",
@@ -54,7 +62,33 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 1,
+              "Title": "MessageReadReceipt.cs",
+              "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Models\\MessageReadReceipt.cs",
+              "RelativeDocumentMoniker": "Models\\MessageReadReceipt.cs",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\Models\\MessageReadReceipt.cs",
+              "RelativeToolTip": "Models\\MessageReadReceipt.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAsAAAAoAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-08T08:24:07.916Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "MessageDto.cs",
+              "DocumentMoniker": "C:\\Projects\\IDMChat_back\\DTO\\MessageDto.cs",
+              "RelativeDocumentMoniker": "DTO\\MessageDto.cs",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\DTO\\MessageDto.cs",
+              "RelativeToolTip": "DTO\\MessageDto.cs",
+              "ViewState": "AgIAAAgAAAAAAAAAAAA9wBgAAAAgAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-08T08:11:50.191Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
               "Title": "AuthController.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Controllers\\AuthController.cs",
               "RelativeDocumentMoniker": "Controllers\\AuthController.cs",
@@ -67,7 +101,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 3,
               "Title": "FilesController.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Controllers\\FilesController.cs",
               "RelativeDocumentMoniker": "Controllers\\FilesController.cs",
@@ -80,7 +114,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 5,
               "Title": "index.html",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\wwwroot\\index.html",
               "RelativeDocumentMoniker": "wwwroot\\index.html",
@@ -93,7 +127,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 8,
               "Title": "UserCache.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Utils\\UserCache.cs",
               "RelativeDocumentMoniker": "Utils\\UserCache.cs",
@@ -106,7 +140,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 7,
               "Title": "UserController.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Controllers\\UserController.cs",
               "RelativeDocumentMoniker": "Controllers\\UserController.cs",
@@ -119,12 +153,12 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 4,
               "Title": "ChatHub.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Hubs\\ChatHub.cs",
               "RelativeDocumentMoniker": "Hubs\\ChatHub.cs",
-              "ToolTip": "C:\\Projects\\IDMChat_back\\Hubs\\ChatHub.cs*",
-              "RelativeToolTip": "Hubs\\ChatHub.cs*",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\Hubs\\ChatHub.cs",
+              "RelativeToolTip": "Hubs\\ChatHub.cs",
               "ViewState": "AgIAAEEBAAAAAAAAAAAAAFoBAAAQAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-05-21T19:19:44.032Z",
@@ -136,9 +170,9 @@
               "Title": "ChatController.cs",
               "DocumentMoniker": "C:\\Projects\\IDMChat_back\\Controllers\\ChatController.cs",
               "RelativeDocumentMoniker": "Controllers\\ChatController.cs",
-              "ToolTip": "C:\\Projects\\IDMChat_back\\Controllers\\ChatController.cs*",
-              "RelativeToolTip": "Controllers\\ChatController.cs*",
-              "ViewState": "AgIAAGsDAAAAAAAAAAAAAIkDAAA9AAAAAAAAAA==",
+              "ToolTip": "C:\\Projects\\IDMChat_back\\Controllers\\ChatController.cs",
+              "RelativeToolTip": "Controllers\\ChatController.cs",
+              "ViewState": "AgIAAOsEAAAAAAAAAAAAAPwEAAASAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-04-29T16:29:07.619Z",
               "EditorCaption": ""

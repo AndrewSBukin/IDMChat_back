@@ -850,6 +850,7 @@ namespace IDMChat.Controllers
                 replyMessages = replies.ToDictionary(r => r.id);
             }
 
+            // Attachments
             var messageIds = messages.Select(m => m.Id).ToList();
             var attachments = new Dictionary<long, List<AttachmentDto>>();
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
@@ -883,6 +884,38 @@ namespace IDMChat.Controllers
             if (hasMore)
                 messages = messages.Take(limit).ToList();
 
+            // ReadCount + ReadBy
+            var readCounts = await _db.MessageReadReceipts
+                .Where(r => messageIds.Contains(r.MessageId))
+                .GroupBy(r => r.MessageId)
+                .Select(g => new { MessageId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.MessageId, g => g.Count, ct);
+            var memberCount = await _db.ConversationMembers.CountAsync(cm => cm.ConversationId == conversationId, ct);
+            var chatType = (await _db.Conversations.FirstOrDefaultAsync(x => x.Id == conversationId))?.Type ?? ConversationType.direct;
+            var needFullReadBy = chatType == ConversationType.direct || memberCount <= 5;
+            Dictionary<long, List<UserBriefDto>>? readByMap = null;
+            if (needFullReadBy)
+            {
+                var readByData = await _db.MessageReadReceipts
+                    .Where(r => messageIds.Contains(r.MessageId))
+                    .Include(r => r.User)
+                    .Select(r => new
+                    {
+                        r.MessageId,
+                        User = new UserBriefDto
+                        {
+                            id = r.User.Id,
+                            display_name = r.User.DisplayName,
+                            avatar_url = r.User.AvatarUrl
+                        }
+                    })
+                    .ToListAsync(ct);
+
+                readByMap = readByData
+                    .GroupBy(r => r.MessageId)
+                    .ToDictionary(g => g.Key, g => g.Select(r => r.User).ToList());
+            }
+
             var messageDtos = messages.Select(m => new MessageDto
             {
                 id = m.Id,
@@ -905,7 +938,10 @@ namespace IDMChat.Controllers
                 reply_to = m.ReplyToMessageId.HasValue && replyMessages.ContainsKey(m.ReplyToMessageId.Value)
                     ? replyMessages[m.ReplyToMessageId.Value]
                     : null,
-                read_by = null
+                read_count = readCounts.GetValueOrDefault(m.Id, 0),
+                read_by = needFullReadBy && readByMap != null && readByMap.ContainsKey(m.Id)
+                    ? readByMap[m.Id]
+                    : null
             }).ToList();
 
             // Для режима before — возвращаем в правильном порядке (от старых к новым)
@@ -920,6 +956,52 @@ namespace IDMChat.Controllers
                 has_more = hasMore
             });
         }
+
+        /// <summary>
+        /// Получить список пользователей, прочитавших сообщение
+        /// </summary>
+        [HttpGet("messages/{messageId}/read-by")]
+        public async Task<IActionResult> GetMessageReadBy(
+            long messageId,
+            CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            // 1. Находим сообщение и проверяем доступ
+            var message = await _db.Messages
+                .FirstOrDefaultAsync(m => m.Id == messageId, ct);
+
+            if (message == null)
+                return NotFound(new { error = new { code = "MESSAGE_NOT_FOUND", message = "Сообщение не найдено" } });
+
+            // 2. Проверяем, что пользователь участник чата
+            var isMember = await _db.ConversationMembers
+                .AnyAsync(cm => cm.ConversationId == message.ConversationId && cm.UserId == userId, ct);
+
+            if (!isMember)
+                return Forbid();
+
+            // 3. Загружаем список прочитавших
+            var readBy = await _db.MessageReadReceipts
+                .Where(r => r.MessageId == messageId)
+                .Include(r => r.User)
+                .OrderBy(r => r.ReadAt)
+                .Select(r => new UserBriefDto
+                {
+                    id = r.User.Id,
+                    display_name = r.User.DisplayName,
+                    avatar_url = r.User.AvatarUrl
+                })
+                .ToListAsync(ct);
+
+            return Ok(new
+            {
+                message_id = messageId,
+                read_count = readBy.Count,
+                read_by = readBy
+            });
+        }
+
 
         /// <summary>
         /// Редактировать своё сообщение (только text)
