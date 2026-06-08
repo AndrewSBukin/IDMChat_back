@@ -318,7 +318,7 @@ namespace IDMChat.Hubs
                     ConversationId = msg.conversation_id,
                     SenderId = userId,
                     Text = msg.text ?? string.Empty,
-                    Type = MessageType.Text,
+                    Type = messageType,
                     ReplyToMessageId = msg.reply_to_message_id,
                     SentAt = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow,

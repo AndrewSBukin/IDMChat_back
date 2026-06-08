@@ -850,6 +850,33 @@ namespace IDMChat.Controllers
                 replyMessages = replies.ToDictionary(r => r.id);
             }
 
+            var messageIds = messages.Select(m => m.Id).ToList();
+            var attachments = new Dictionary<long, List<AttachmentDto>>();
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            if (messageIds.Any())
+            {
+                var fileAttachments = await _db.FileAttachments
+                    .Where(f => f.MessageId.HasValue && messageIds.Contains(f.MessageId.Value) && f.MessageId != 0)
+                    .Select(f => new
+                    {
+                        f.MessageId,
+                        Attachment = new AttachmentDto
+                        {
+                            id = f.Id,
+                            file_name = f.FileName,
+                            file_size = f.FileSize,
+                            mime_type = f.MimeType,
+                            url = $"{baseUrl}/api/files/{f.StoragePath}",
+                            thumbnail_url = f.ThumbnailPath != null ? $"{baseUrl}/api/files/{f.ThumbnailPath}" : null
+                        }
+                    })
+                    .ToListAsync(ct);
+
+                attachments = fileAttachments
+                    .GroupBy(f => f.MessageId.Value)
+                    .ToDictionary(g => g.Key, g => g.Select(f => f.Attachment).ToList());
+            }
+
             var hasMore = messages.Count > limit;
 
             // Обрезаем до нужного количества
@@ -873,7 +900,7 @@ namespace IDMChat.Controllers
                 is_deleted = m.IsDeleted,
                 created_at = m.CreatedAt,
                 updated_at = m.UpdatedAt,
-                attachments = null,
+                attachments = attachments.GetValueOrDefault(m.Id) ?? new List<AttachmentDto>(),
                 reply_to_id = m.ReplyToMessageId,
                 reply_to = m.ReplyToMessageId.HasValue && replyMessages.ContainsKey(m.ReplyToMessageId.Value)
                     ? replyMessages[m.ReplyToMessageId.Value]
