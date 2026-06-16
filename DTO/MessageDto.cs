@@ -1,4 +1,6 @@
-﻿namespace IDMChat.DTO
+﻿using IDMChat.Models;
+
+namespace IDMChat.DTO
 {
     public class MessageDto
     {
@@ -34,7 +36,25 @@
         public string url { get; set; } = string.Empty;
         public string? thumbnail_url { get; set; }
     }
-
+    public class LastMessageDto
+    {
+        public long id { get; internal set; }
+        public string text { get; internal set; }
+        public string type { get; internal set; }
+        public Guid sender_id { get; internal set; }
+        public string sender_name { get; internal set; }
+        public DateTime created_at { get; internal set; }
+        public List<AttachmentDto> attachments { get; internal set; }
+    }
+    public class ConversationUpdatedDto
+    {
+        public Guid id { get; internal set; }
+        public string type { get; internal set; }
+        public string? name { get; internal set; }
+        public string? avatar_url { get; internal set; }
+        public DateTime updated_at { get; internal set; }
+        public LastMessageDto? last_message { get; internal set; }
+    }
     public class ReplyPreviewDto
     {
         public long id { get; set; }

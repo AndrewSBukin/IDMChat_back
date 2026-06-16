@@ -6,6 +6,7 @@ namespace IDMChat.Utils
     {
         private readonly ConcurrentDictionary<Guid, string> _connections = new();
         private readonly ConcurrentDictionary<Guid, bool> _onlineStatus = new();
+        private readonly ConcurrentDictionary<Guid, string> _displayNames = new();
 
         public void AddConnection(Guid userId, string connectionId)
         {
@@ -32,6 +33,16 @@ namespace IDMChat.Utils
         public List<Guid> GetOnlineMembers(HashSet<Guid> userIds)
         {
             return userIds.Where(IsOnline).ToList();
+        }
+
+        public void AddOrUpdateUser(Guid userId, string displayName)
+        {
+            _displayNames[userId] = displayName;
+        }
+
+        public string? GetDisplayName(Guid userId)
+        {
+            return _displayNames.GetValueOrDefault(userId);
         }
     }
 }

@@ -41,6 +41,9 @@ namespace IDMChat.Models
         public string ConnectionId { get; set; } = string.Empty;
 
         public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
+        /// <summary>
+        /// deprecated
+        /// </summary>
         public bool IsOnline { get; set; } = false;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

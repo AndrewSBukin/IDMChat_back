@@ -11,7 +11,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualBasic;
+using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
+using System.Net.Mail;
+using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
 using static IDMChat.Controllers.ConversationsController;
@@ -29,19 +32,21 @@ namespace IDMChat.Controllers
         private readonly ILogger<ConversationsController> _logger;
         private readonly ChatDbContext _db;
         private readonly ChatStateCache _cache;
+        private readonly UserCache _userCache;
         private readonly IHubContext<ChatHub> _hubContext;
         private readonly string _storageBasePath;
 
         public ConversationsController(
             ChatDbContext dbContext, 
             ILogger<ConversationsController> logger,
-            ChatStateCache cache,
+            ChatStateCache cache, UserCache ucache,
             IHubContext<ChatHub> hubContext, 
             IConfiguration configuration)
         {
             _db = dbContext;
             _logger = logger;
             _cache = cache;
+            _userCache = ucache;
             _hubContext = hubContext;
             _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
         }
@@ -124,8 +129,8 @@ namespace IDMChat.Controllers
 
             return Ok(new ConversationsResponse
             {
-                Conversations = conversations,
-                Total = total
+                conversations = conversations,
+                total = total
             });
         }
 
@@ -203,8 +208,8 @@ namespace IDMChat.Controllers
 
             return Ok(new ConversationsResponse
             {
-                Conversations = conversations,
-                Total = total
+                conversations = conversations,
+                total = total
             });
         }
 
@@ -343,6 +348,7 @@ namespace IDMChat.Controllers
             // 5. Сохранение
             await _db.SaveChangesAsync(ct);
 
+            // TODO: сбросить кеш?
             // 6. Обновить кэш
             //_cache.InvalidateUserConversations(userId);
             //foreach (var memberId in allMemberIds)
@@ -350,21 +356,61 @@ namespace IDMChat.Controllers
             //    _cache.InvalidateUserConversations(memberId);
             //}
 
-            // 7. Вернуть объект чата
-            var response = await BuildConversationResponse(conversation.Id, userId, ct);
-
             // Уведомление участников (кроме себя)
-            var otherMembers = allMemberIds.Where(id => id != userId).ToList();
-            foreach (var newMemberId in otherMembers)
-            {
-                var fullConversation = await BuildConversationResponse(conversation.Id, newMemberId, ct);
-                await _hubContext.Clients
-                    .User(newMemberId.ToString())
-                    .SendAsync("conversation_new", fullConversation, ct);
-            }
+            var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, ct);
+            var allMemberIdsStr = allMemberIds.Where(x => x != userId).Select(m => m.ToString()).ToList();
+            await _hubContext.Clients.Users(allMemberIdsStr).SendAsync("conversation_new", conversationUpdatedDto, ct);
 
-            return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, response);
+            return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, conversationUpdatedDto);
             //return StatusCode(201, response);
+        }
+
+        async Task<ConversationUpdatedDto> BuildConversationUpdatedDto(Conversation conversation, CancellationToken ct = default)
+        {
+            var message = await _db.Messages.Include(m => m.Conversation).AsTracking()
+                .FirstOrDefaultAsync(m => m.Id == conversation.LastMessageId && m.ConversationId == conversation.Id, ct);
+
+            var attachments = await _db.FileAttachments
+                .Where(a => a.MessageId == conversation.LastMessageId)
+                .Select(a => new AttachmentDto
+                {
+                    id = a.Id,
+                    file_name = a.FileName,
+                    file_size = a.FileSize,
+                    mime_type = a.MimeType,
+                    url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
+                    thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                })
+                .ToListAsync(ct);
+
+            var sender_name = "";
+            if (conversation.LastMessageSenderId.HasValue)
+            {
+                sender_name = _userCache.GetDisplayName(conversation.LastMessageSenderId.Value);
+                if (string.IsNullOrEmpty(sender_name))
+                    sender_name = await _db.Users.Where(x => x.Id == conversation.LastMessageSenderId.Value).Select(x => x.DisplayName).FirstOrDefaultAsync(ct);
+            }
+            var lastMessagePreview = new LastMessageDto
+            {
+                id = message.Id,
+                text = conversation.LastMessageText ?? "",
+                type = message.Type.ToString().ToLower(),
+                sender_id = message.SenderId,
+                sender_name = sender_name ?? "ошибка получения имени  ",
+                created_at = message.CreatedAt,
+                attachments = attachments
+            };
+
+            var conversationUpdatedDto = new ConversationUpdatedDto
+            {
+                id = conversation.Id,
+                type = conversation.Type.ToString().ToLower(),
+                name = conversation.Name,
+                avatar_url = conversation.AvatarUrl,
+                last_message = lastMessagePreview,
+                updated_at = message.UpdatedAt.Value
+            };
+            return conversationUpdatedDto;
         }
 
         /// <summary>
@@ -425,10 +471,14 @@ namespace IDMChat.Controllers
             _cache.Invalidate(id);
 
             // 7. Возвращаем обновлённый объект чата
-            var response = await BuildConversationResponse(conversation.Id, userId, ct);
-            await _hubContext.Clients.Group(id.ToString()).SendAsync("conversation_updated", response);
+            var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, ct);
 
-            return Ok(response);
+            // Отправляем всем участникам чата
+            var allMemberIds = conversation.Members.Select(m => m.UserId.ToString()).ToList();
+            await _hubContext.Clients.Users(allMemberIds)
+                .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+
+            return Ok(conversationUpdatedDto);
         }
 
         /// <summary>
@@ -516,8 +566,11 @@ namespace IDMChat.Controllers
             member.IsPinned = request.is_pinned;
             await _db.SaveChangesAsync(ct);
 
-            var response = await BuildConversationResponse(id, userId, ct);
-            await _hubContext.Clients.Group(id.ToString()).SendAsync("conversation_updated", response);
+            await _hubContext.Clients.User(userId.ToString()).SendAsync("conversation_options_updated", new {
+                id = id,
+                is_muted = member.IsMuted,
+                is_pinned = member.IsPinned
+            });
 
             // Инвалидируем кэш (чтобы обновился порядок сортировки)
             _cache.Invalidate(id);
@@ -544,8 +597,12 @@ namespace IDMChat.Controllers
             member.IsMuted = request.is_muted;
             await _db.SaveChangesAsync(ct);
 
-            var response = await BuildConversationResponse(id, userId, ct);
-            await _hubContext.Clients.Group(id.ToString()).SendAsync("conversation_updated", response);
+            await _hubContext.Clients.User(userId.ToString()).SendAsync("conversation_options_updated", new
+            {
+                id = id,
+                is_muted = member.IsMuted,
+                is_pinned = member.IsPinned
+            });
 
             // Обновляем кэш (чтобы при отправке сообщений проверять is_muted)
             _cache.UpdateMuteStatus(id, userId, request.is_muted);
@@ -657,22 +714,14 @@ namespace IDMChat.Controllers
             await _db.SaveChangesAsync(ct);
 
             // 10. Уведомления через хаб
+            var fullConversation = await BuildConversationUpdatedDto(conversation, ct);
             foreach (var newMemberId in newMemberIds)
             {
-                var fullConversation = await BuildConversationResponse(id, newMemberId, ct);
-                await _hubContext.Clients
-                    .User(newMemberId.ToString())
-                    .SendAsync("conversation_new", fullConversation);
+                await _hubContext.Clients.User(newMemberId.ToString()).SendAsync("conversation_new", fullConversation);
             }
 
             // Уведомить остальных участников
-            var otherMemberIds = existingMemberIds.Except(newMemberIds).ToList();
-            foreach (var memberId in otherMemberIds)
-            {
-                await _hubContext.Clients
-                    .User(memberId.ToString())
-                    .SendAsync("members_added", new { conversationId = id, memberIds = newMemberIds, addedBy = userId });
-            }
+            await _hubContext.Clients.Group(id.ToString()).SendAsync("members_added", new { conversation_id = id, member_ids = newMemberIds, added_by = userId });
 
             // 11. Инвалидируем кэш
             _cache.Invalidate(id);
@@ -748,6 +797,8 @@ namespace IDMChat.Controllers
             conversation.UpdatedAt = systemMessage.CreatedAt;
 
             await _db.SaveChangesAsync(ct);
+
+            await _hubContext.Clients.Group(id.ToString()).SendAsync("members_removed", new { conversation_id = id, member_ids = new[] { memberId }, removed_by = userId });
 
             // 9. Инвалидируем кэш
             _cache.Invalidate(id);
@@ -853,7 +904,6 @@ namespace IDMChat.Controllers
             // Attachments
             var messageIds = messages.Select(m => m.Id).ToList();
             var attachments = new Dictionary<long, List<AttachmentDto>>();
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
             if (messageIds.Any())
             {
                 var fileAttachments = await _db.FileAttachments
@@ -867,8 +917,8 @@ namespace IDMChat.Controllers
                             file_name = f.FileName,
                             file_size = f.FileSize,
                             mime_type = f.MimeType,
-                            url = $"{baseUrl}/api/files/{f.StoragePath}",
-                            thumbnail_url = f.ThumbnailPath != null ? $"{baseUrl}/api/files/{f.ThumbnailPath}" : null
+                            url = $"{Program.AppBaseUrl}/api/files/{f.StoragePath}",
+                            thumbnail_url = f.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{f.ThumbnailPath}" : null
                         }
                     })
                     .ToListAsync(ct);
@@ -961,9 +1011,7 @@ namespace IDMChat.Controllers
         /// Получить список пользователей, прочитавших сообщение
         /// </summary>
         [HttpGet("messages/{messageId}/readby")]
-        public async Task<IActionResult> GetMessageReadBy(
-            long messageId,
-            CancellationToken ct = default)
+        public async Task<IActionResult> GetMessageReadBy(long messageId, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
 
@@ -1034,6 +1082,19 @@ namespace IDMChat.Controllers
             message.Text = request.Text;
             message.UpdatedAt = DateTime.UtcNow;
 
+            var attachments = await _db.FileAttachments
+                .Where(a => a.MessageId == messageId)
+                .Select(a => new AttachmentDto
+                {
+                    id = a.Id,
+                    file_name = a.FileName,
+                    file_size = a.FileSize,
+                    mime_type = a.MimeType,
+                    url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
+                    thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                })
+                .ToListAsync(ct);
+
             // 5. Обновляем денормализованное поле в Conversation
             if (message.Id == message.Conversation.LastMessageId)
             {
@@ -1042,6 +1103,36 @@ namespace IDMChat.Controllers
                     : request.Text;
                 message.Conversation.LastMessageText = truncatedText;
                 message.Conversation.UpdatedAt = message.UpdatedAt.Value;
+
+                {
+                    var chat = message.Conversation;
+
+                    var lastMessagePreview = new LastMessageDto
+                    {
+                        id = message.Id,
+                        text = truncatedText,
+                        type = message.Type.ToString().ToLower(),
+                        sender_id = message.SenderId, 
+                        sender_name = _userCache.GetDisplayName(userId) ?? "ошибка получения имени", // TODO: а если в кеше нет?
+                        created_at = message.CreatedAt,
+                        attachments = attachments
+                    };
+
+                    var conversationUpdatedDto = new ConversationUpdatedDto
+                    {
+                        id = chat.Id,
+                        type = chat.Type.ToString().ToLower(),
+                        name = chat.Name,
+                        avatar_url = chat.AvatarUrl,
+                        last_message = lastMessagePreview,
+                        updated_at = message.UpdatedAt.Value
+                    };
+
+                    // Отправляем всем участникам чата
+                    var allMemberIds = chat.Members.Select(m => m.UserId.ToString()).ToList();
+                    await _hubContext.Clients.Users(allMemberIds)
+                        .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                }
             }
 
             await _db.SaveChangesAsync(ct);
@@ -1049,13 +1140,15 @@ namespace IDMChat.Controllers
             // 6. Инвалидируем кэш чата
             _cache.Invalidate(id);
 
-            // 7. Уведомляем участников через хаб (опционально)
-            await _hubContext.Clients.Group(id.ToString()).SendAsync("message_edited", new { 
+            // 7. Уведомляем участников через хаб
+            await _hubContext.Clients.Group(id.ToString()).SendAsync("message_edited", new MessageDto{ 
                 id = messageId, 
                 conversation_id = id, 
                 text = request.Text, 
                 is_edited = true,
-                updated_at = message.UpdatedAt });
+                updated_at = message.UpdatedAt,
+                attachments = attachments ?? new List<AttachmentDto>()
+            });
 
             return Ok(new { message.Id, message.Text, message.UpdatedAt });
         }
@@ -1081,7 +1174,7 @@ namespace IDMChat.Controllers
 
             // 3. Soft delete
             message.IsDeleted = true;
-            message.Text = "[Сообщение удалено]";
+            //message.Text = "[Сообщение удалено]";
             message.UpdatedAt = DateTime.UtcNow;
 
             // 4. Если это было последнее сообщение — обновляем LastMessage в Conversation
@@ -1093,6 +1186,19 @@ namespace IDMChat.Controllers
                     .OrderByDescending(m => m.Id)
                     .FirstOrDefaultAsync(ct);
 
+                var chat = message.Conversation;
+                var allMemberIds = chat.Members.Select(m => m.UserId.ToString()).ToList();
+
+                var conversationUpdatedDto = new ConversationUpdatedDto
+                {
+                    id = chat.Id,
+                    type = chat.Type.ToString().ToLower(),
+                    name = chat.Name,
+                    avatar_url = chat.AvatarUrl,
+                    last_message = null,
+                    updated_at = message.UpdatedAt.Value
+                };
+
                 if (prevMessage != null)
                 {
                     message.Conversation.LastMessageId = prevMessage.Id;
@@ -1101,6 +1207,35 @@ namespace IDMChat.Controllers
                         : prevMessage.Text;
                     message.Conversation.LastMessageSenderId = prevMessage.SenderId;
                     message.Conversation.LastMessageCreatedAt = prevMessage.CreatedAt;
+
+                    var attachments = await _db.FileAttachments
+                        .Where(a => a.MessageId == prevMessage.Id)
+                        .Select(a => new AttachmentDto
+                        {
+                            id = a.Id,
+                            file_name = a.FileName,
+                            file_size = a.FileSize,
+                            mime_type = a.MimeType,
+                            url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
+                            thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                        })
+                        .ToListAsync(ct);
+                    var sender_name = _userCache.GetDisplayName(prevMessage.SenderId);
+                    if (string.IsNullOrEmpty(sender_name))
+                        sender_name = _db.Users.Select(x => x.DisplayName).FirstOrDefault();
+                    var lastMessagePreview = new LastMessageDto
+                    {
+                        id = prevMessage.Id,
+                        text = message.Conversation.LastMessageText ?? "",
+                        type = prevMessage.Type.ToString().ToLower(),
+                        sender_id = prevMessage.SenderId,
+                        sender_name = sender_name ?? "ошибка получения имени ",
+                        created_at = prevMessage.CreatedAt,
+                        attachments = attachments
+                    };
+                    conversationUpdatedDto.last_message = lastMessagePreview;
+                    await _hubContext.Clients.Users(allMemberIds)
+                        .SendAsync("conversation_updated", conversationUpdatedDto, ct);
                 }
                 else
                 {
@@ -1108,6 +1243,9 @@ namespace IDMChat.Controllers
                     message.Conversation.LastMessageText = null;
                     message.Conversation.LastMessageSenderId = null;
                     message.Conversation.LastMessageCreatedAt = null;
+
+                    await _hubContext.Clients.Users(allMemberIds)
+                        .SendAsync("conversation_updated", conversationUpdatedDto, ct);
                 }
                 message.Conversation.UpdatedAt = DateTime.UtcNow;
             }
@@ -1123,6 +1261,31 @@ namespace IDMChat.Controllers
                 id = messageId,
                 conversation_id = id
             });
+
+            // Находим всех участников чата, у которых это сообщение ещё не прочитано
+            var membersWithUnread = await _db.ConversationMembers
+                .Where(cm => cm.ConversationId == message.Conversation.Id
+                             && (cm.LastReadMessageId == null || cm.LastReadMessageId < messageId))
+                .ToListAsync();
+
+            foreach (var member in membersWithUnread)
+            {
+                member.UnreadCount--;  // уменьшаем счётчик
+                member.UnreadCount = Math.Max(0, member.UnreadCount);  // не меньше 0
+            }
+
+            await _db.SaveChangesAsync();
+
+            // Отправляем обновления
+            foreach (var member in membersWithUnread)
+            {
+                await _hubContext.Clients.User(member.UserId.ToString())
+                    .SendAsync("unread_count_updated", new
+                    {
+                        conversation_id = message.Conversation.Id,
+                        unread_count = member.UnreadCount
+                    });
+            }
 
             return NoContent();
         }
@@ -1417,8 +1580,7 @@ namespace IDMChat.Controllers
             }
 
             // 6. Формируем URL
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
-            var avatarUrl = $"{baseUrl}/api/files/avatars/conversations/{fileName}";
+            var avatarUrl = $"{Program.AppBaseUrl}/api/files/avatars/conversations/{fileName}";
 
             // 7. Обновляем запись в БД
             conversation.AvatarUrl = avatarUrl;
@@ -1429,9 +1591,13 @@ namespace IDMChat.Controllers
             // 8. Инвалидируем кэш
             _cache.Invalidate(id);
 
-            // 9. Уведомляем всех участников чата через SignalR
-            var updatedConversation = await BuildConversationResponse(id, userId, ct);
-            await _hubContext.Clients.Group(id.ToString()).SendAsync("conversation_updated", updatedConversation);
+            // 9. Возвращаем обновлённый объект чата
+            var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, ct);
+
+            // Отправляем всем участникам чата
+            var allMemberIds = conversation.Members.Select(m => m.UserId.ToString()).ToList();
+            await _hubContext.Clients.Users(allMemberIds)
+                .SendAsync("conversation_updated", conversationUpdatedDto, ct);
 
             return Ok(new { avatar_url = avatarUrl });
         }
@@ -1538,8 +1704,8 @@ namespace IDMChat.Controllers
         // Response DTOs
         public class ConversationsResponse
         {
-            public List<ConversationResponse> Conversations { get; set; } = new();
-            public int Total { get; set; }
+            public List<ConversationResponse> conversations { get; set; } = new();
+            public int total { get; set; }
         }
 
         public class ConversationResponse
@@ -1548,22 +1714,25 @@ namespace IDMChat.Controllers
             public string type { get; set; }
             public string? name { get; set; }
             public string? avatar_url { get; set; }
-            public bool is_pinned { get; set; }
-            public bool is_muted { get; set; }
             public List<MemberResponse> members { get; set; } = new();
             public LastMessageResponse? last_message { get; set; }
-            public int unread_count { get; set; }
             public DateTime updated_at { get; set; }
+
+            // user-specific:
+            public bool is_pinned { get; set; }
+            public bool is_muted { get; set; }
+            public int unread_count { get; set; }
         }
 
         public class MemberResponse
         {
-            public string? custom_status;
+            public string? custom_status { get; set; }
 
             public Guid id { get; set; }
             public string display_name { get; set; } = string.Empty;
             public string? avatar_url { get; set; }
             public string? status { get; set; }
+            public bool is_online { get; set; }
         }
 
         public class LastMessageResponse
@@ -1573,6 +1742,7 @@ namespace IDMChat.Controllers
             public string type { get; set; } = string.Empty;
             public Guid sender_id { get; set; }
             public DateTime created_at { get; set; }
+            public List<AttachmentDto> attachments { get; internal set; } = new();
         }
 
         #endregion
@@ -1588,25 +1758,15 @@ namespace IDMChat.Controllers
                     cm.IsMuted,
                     cm.UnreadCount,
                     Conversation = cm.Conversation,
-                    Members = cm.Conversation.Type == ConversationType.group
-                        ? cm.Conversation.Members.Select(m => new MemberResponse
+                    Members = cm.Conversation.Members.Select(m => new MemberResponse
                         {
                             id = m.UserId,
                             display_name = m.User.DisplayName,
                             avatar_url = m.User.AvatarUrl,
-                            status = m.User.IsOnline ? "online" : "offline", 
-                            custom_status = m.User.CustomStatus
-                        }).ToList()
-                        : cm.Conversation.Members
-                            .Where(m => m.UserId != userId)
-                            .Select(m => new MemberResponse
-                            {
-                                id = m.UserId,
-                                display_name = m.User.DisplayName,
-                                avatar_url = m.User.AvatarUrl,
-                                status = m.User.IsOnline ? "online" : "offline",
-                                custom_status = m.User.CustomStatus
-                            }).ToList(),
+                            status = _userCache.IsOnline(m.UserId) ? "online" : "offline", 
+                            custom_status = m.User.CustomStatus, 
+                            is_online = _userCache.IsOnline(m.UserId)
+                    }).ToList(),
                     LastMessage = cm.Conversation.LastMessageId != null
                         ? new LastMessageResponse
                         {
@@ -1616,7 +1776,19 @@ namespace IDMChat.Controllers
                                     : cm.Conversation.LastMessage.Text,
                             type = cm.Conversation.LastMessage.Type.ToString().ToLower(),
                             sender_id = cm.Conversation.LastMessage.SenderId,
-                            created_at = cm.Conversation.LastMessage.CreatedAt
+                            created_at = cm.Conversation.LastMessage.CreatedAt, 
+                            attachments = _db.FileAttachments
+                                .Where(a => a.MessageId == cm.Conversation.LastMessageId)
+                                .Select(a => new AttachmentDto
+                                {
+                                    id = a.Id,
+                                    file_name = a.FileName,
+                                    file_size = a.FileSize,
+                                    mime_type = a.MimeType,
+                                    url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
+                                    thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                                })
+                                .ToList()
                         }
                         : null
                 })

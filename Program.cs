@@ -26,6 +26,7 @@ namespace IDMChat
 {
     public class Program
     {
+        public static string AppBaseUrl { get; set; } = "";
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);

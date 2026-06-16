@@ -22,6 +22,13 @@ namespace IDMChat.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
+            if (string.IsNullOrEmpty(Program.AppBaseUrl))
+            {
+                var request = context.Request;
+                var baseUrl = $"{request.Scheme}://{request.Host}";
+                Program.AppBaseUrl = baseUrl;
+            }
+
             if (context.User.Identity?.IsAuthenticated == true)
             {
                 var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

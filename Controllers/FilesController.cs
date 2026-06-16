@@ -149,16 +149,14 @@ namespace IDMChat.Controllers
             _db.FileAttachments.Add(attachment);
             await _db.SaveChangesAsync(ct);
 
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
-
             return Ok(new UploadFileResponse
             {
                 Id = fileId,
                 FileName = file.FileName,
                 FileSize = file.Length,
                 MimeType = file.ContentType,
-                Url = $"{baseUrl}/api/files/files/{datePath}/{fileName}",
-                ThumbnailUrl = hasThumbnail ? $"{baseUrl}/api/files/files/{datePath}/{thumbFileName}" : null,
+                Url = $"{Program.AppBaseUrl}/api/files/files/{datePath}/{fileName}",
+                ThumbnailUrl = hasThumbnail ? $"{Program.AppBaseUrl}/api/files/files/{datePath}/{thumbFileName}" : null,
                 Duration = duration
             });
         }

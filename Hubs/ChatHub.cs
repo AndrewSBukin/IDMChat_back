@@ -1,4 +1,5 @@
-﻿using IDMChat.Controllers;
+﻿using Azure.Core;
+using IDMChat.Controllers;
 using IDMChat.Domain;
 using IDMChat.DTO;
 using IDMChat.Models;
@@ -6,6 +7,7 @@ using IDMChat.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Net.Mail;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
 
@@ -32,26 +34,55 @@ namespace IDMChat.Hubs
             var userId = Context.GetUserId();
             _userCache.AddConnection(userId, Context.ConnectionId);
 
-            // 1. Добавляем в группы
+            // Загружаем данные пользователя для статуса
+            var user = await _db.Users
+                .Where(u => u.Id == userId)
+                .Select(u => new
+                {
+                    u.Id,
+                    u.DisplayName,
+                    u.AvatarUrl,
+                    u.CustomStatus
+                })
+                .FirstOrDefaultAsync();
+
+            if (user != null)
+            {
+                _userCache.AddOrUpdateUser(userId, user.DisplayName);
+
+                var now = DateTime.UtcNow;
+                await _db.Users
+                    .Where(u => u.Id == userId)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(u => u.LastSeenAt, now));
+
+                await Clients.All.SendAsync("user_status", new
+                {
+                    id = user.Id,
+                    display_name = user.DisplayName,
+                    avatar_url = user.AvatarUrl,
+                    status = "online",           // "online", "offline", "away"
+                    custom_status = user.CustomStatus,
+                    is_online = true,
+                    last_seen_at = now
+                });
+            }
+
             var userChats = await _db.ConversationMembers
-                .Where(cm => cm.UserId == userId)
+                .Where(cm => cm.UserId == userId && cm.UnreadCount > 0)
                 .Select(cm => new { cm.ConversationId, cm.UnreadCount })
                 .ToListAsync();
 
-            foreach (var chat in userChats)
-            {
-                await Groups.AddToGroupAsync(Context.ConnectionId, chat.ConversationId.ToString());
-            }
+            //foreach (var chat in userChats)
+            //{
+            //    await Groups.AddToGroupAsync(Context.ConnectionId, chat.ConversationId.ToString());
+            //}
 
             // 2. Отправляем ТОЛЬКО счётчики непрочитанных
-            var unreadSummary = userChats
-                .Where(c => c.UnreadCount > 0)
-                .ToDictionary(c => c.ConversationId, c => c.UnreadCount);
+            var unreadSummary = userChats.ToDictionary(c => c.ConversationId, c => c.UnreadCount);
 
             await Clients.Caller.SendAsync("unread_summary", unreadSummary);
 
-            // 3. Сообщения подгружаются по мере открытия чатов (через REST)
-            await Clients.All.SendAsync("user_status", new { user_id = userId, status = "online" });
 
             await base.OnConnectedAsync();
         }
@@ -60,8 +91,20 @@ namespace IDMChat.Hubs
         {
             var userId = Context.GetUserId();
 
+            var now = DateTime.UtcNow;
+
+            var user = await _db.Users.FindAsync(userId);
             // 1. Уведомить всех об оффлайн статусе
-            await Clients.All.SendAsync("user_status", new { user_id = userId, status = "offline" });
+            await Clients.All.SendAsync("user_status", new
+            {
+                id = user.Id,
+                display_name = user.DisplayName,
+                avatar_url = user.AvatarUrl,
+                status = "offline",           // "online", "offline", "away"
+                custom_status = user.CustomStatus,
+                is_online = false,
+                last_seen_at = now
+            });
 
             // 2. Удалить пользователя из кэша SignalR групп (если не удаляются автоматически)
             var userChats = await _db.ConversationMembers
@@ -78,11 +121,10 @@ namespace IDMChat.Hubs
             _userCache.RemoveConnection(userId, Context.ConnectionId);
 
             // 4. Обновить статус в БД (опционально)
-            var user = await _db.Users.FindAsync(userId);
             if (user != null)
             {
                 user.IsOnline = false;
-                user.LastSeenAt = DateTime.UtcNow;
+                user.LastSeenAt = now;
                 await _db.SaveChangesAsync();
             }
 
@@ -263,19 +305,10 @@ namespace IDMChat.Hubs
         }
         public async Task SendMessage(NewMessageRequest msg)
         {
+            var ct = Context.ConnectionAborted;
             var userId = Context.GetUserId();
             try
             {
-                // 1. Дедупликация
-                var exists = await _db.Messages
-                    .AnyAsync(m => m.ConversationId == msg.conversation_id && m.ClientTempId == msg.temp_id);
-
-                if (exists)
-                {
-                    await Clients.Caller.SendAsync("message_duplicate", msg.temp_id);
-                    return;
-                }
-
                 // 2. Проверки из кэша
                 var chat = await _chatCache.GetConversationAsync(msg.conversation_id);
 
@@ -284,6 +317,15 @@ namespace IDMChat.Hubs
 
                 if (chat.IsWriteRestricted && !chat.IsAdmin(userId))
                     throw new HubException("ONLY_ADMINS_CAN_WRITE");
+
+                // 1. Дедупликация
+                var exists = await _db.Messages.AnyAsync(m => m.ConversationId == msg.conversation_id && m.ClientTempId == msg.temp_id);
+
+                if (exists)
+                {
+                    await Clients.Caller.SendAsync("message_duplicate", new { temp_id = msg.temp_id });
+                    return;
+                }
 
                 // 3. Валидация параметров
                 var messageType = ParseMessageType(msg.type);
@@ -327,19 +369,32 @@ namespace IDMChat.Hubs
 
                 // 6. Сохранение в БД
                 _db.Messages.Add(message);
-                await _db.SaveChangesAsync(); // message.Id заполняется
+                await _db.SaveChangesAsync(ct); // message.Id заполняется
 
                 // 5. Привязка вложений
+                var attachments = new List<AttachmentDto>();
                 if (msg.attachment_ids != null && msg.attachment_ids.Any())
                 {
-                    var attachments = await _db.FileAttachments.AsTracking()
+                    var attachmentFiles = await _db.FileAttachments.AsTracking()
                         .Where(a => msg.attachment_ids.Contains(a.Id) && a.UserId == userId)
-                        .ToListAsync();
+                        .ToListAsync(ct);
 
-                    foreach (var attachment in attachments)
+                    foreach (var attachment in attachmentFiles)
                     {
                         attachment.MessageId = message.Id;
                     }
+
+                    attachments = attachmentFiles
+                    .Select(f => new AttachmentDto
+                        {
+                            id = f.Id,
+                            file_name = f.FileName,
+                            file_size = f.FileSize,
+                            mime_type = f.MimeType,
+                            url = $"{Program.AppBaseUrl}/api/files/{f.StoragePath}",
+                            thumbnail_url = f.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{f.ThumbnailPath}" : null
+                        })
+                    .ToList();
                 }
 
                 var truncatedText = (msg.text ?? string.Empty).Length > 100 ? msg.text[..100] + "..." : (msg.text ?? string.Empty);
@@ -368,41 +423,78 @@ namespace IDMChat.Hubs
                 // 8. Подтверждение отправителю
                 await Clients.Caller.SendAsync("message_confirmed", new { message_id = message.Id, temp_id = msg.temp_id });
 
+                var user = await _db.Users
+                    .Where(u => u.Id == userId)
+                    .Select(u => new
+                    {
+                        u.Id,
+                        u.DisplayName,
+                        u.AvatarUrl,
+                        u.CustomStatus
+                    })
+                    .FirstOrDefaultAsync();
+
                 // 9. Рассылка остальным
                 var messageDto = new
                 {
-                    message.Id,
-                    message.Text,
-                    sender_id = userId,
-                    created_at = message.CreatedAt,
+                    id = message.Id,
                     type = msg.type,
-                    reply_to_id = msg.reply_to_message_id,
+                    text = message.Text,
+                    created_at = message.CreatedAt,
+                    sender = new { 
+                        id = userId,
+                        display_name = user.DisplayName,
+                        avatar_url = user.AvatarUrl, 
+                        status = "online", 
+                        is_online = true,
+                        custom_status = user.CustomStatus
+                    },
                     reply_to = replyToObj,
-                    attachment_ids = msg.attachment_ids
+                    attachments = attachments,
                 };
 
-                var onlineMembers = _userCache.GetOnlineMembers(chat.Members);
-
-                foreach (var memberId in onlineMembers.Where(m => m != userId))
+                await Clients.Group(msg.conversation_id.ToString()).SendAsync("message_new", new
                 {
-                    var connectionId = _userCache.GetConnectionId(memberId);
-                    if (connectionId != null)
-                    {
-                        // Отправляем сообщение получателю
-                        await Clients.Client(connectionId).SendAsync("message_new", new { conversation_id = msg.conversation_id, message = messageDto });
+                    conversation_id = msg.conversation_id,
+                    message = messageDto
+                });
 
-                        // Уведомляем отправителя о доставке получателю
-                        await Clients.Caller.SendAsync("message_delivered", new
-                        {
-                            message_id = message.Id,
-                            user_id = memberId
-                        });
+                var lastMessagePreview = new LastMessageDto
+                {
+                    id = message.Id,
+                    text = message.Text.Length > 100 ? message.Text.Substring(0, 100) + "..." : message.Text,
+                    type = msg.type,
+                    sender_id = userId, 
+                    sender_name = user.DisplayName,
+                    created_at = message.CreatedAt,
+                    attachments = attachments
+                };
 
-                        // Обновляем счетчик непрочитанных у получателя
-                        var newUnreadCount = chat.GetUnreadCount(memberId);
-                        await Clients.Client(connectionId).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount });
-                    }
+                var onlineMembers = _userCache.GetOnlineMembers(chat.Members).Where(m => m != userId).ToList();
+
+                var conversationUpdatedDto = new ConversationUpdatedDto()
+                {
+                    id = msg.conversation_id,
+                    type = conversation.Type.ToString().ToLower(),
+                    name = conversation.Name,
+                    avatar_url = conversation.AvatarUrl,
+                    last_message = lastMessagePreview,
+                    updated_at = message.CreatedAt
+                };
+                foreach (var memberId in onlineMembers)
+                {
+                    await Clients.User(memberId.ToString()).SendAsync("conversation_updated", conversationUpdatedDto);
+                    
+                    // Обновляем счетчик непрочитанных у получателя
+                    var newUnreadCount = chat.GetUnreadCount(memberId);
+                    await Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount });
                 }
+
+                await Clients.Caller.SendAsync("message_delivered", new
+                {
+                    message_id = message.Id,
+                    user_ids = onlineMembers  // список Guid
+                });
 
                 _logger.LogDebug("Message {MessageId} sent to conversation {ConversationId} by {UserId}", message.Id, msg.conversation_id, userId);
             }
@@ -421,7 +513,7 @@ namespace IDMChat.Hubs
                 throw new HubException("MESSAGE_SEND_FAILED", ex);
             }
         }
-
+        
         private MessageType ParseMessageType(string type)
         {
             return type?.ToLower() switch
@@ -454,43 +546,43 @@ namespace IDMChat.Hubs
             await Groups.AddToGroupAsync(Context.ConnectionId, data.conversation_id.ToString());
 
             // Отправляем последние непрочитанные сообщения (только для этого чата)
-            var member = await _db.ConversationMembers
-                .FirstOrDefaultAsync(cm => cm.ConversationId == data.conversation_id && cm.UserId == userId);
+            //var member = await _db.ConversationMembers
+            //    .FirstOrDefaultAsync(cm => cm.ConversationId == data.conversation_id && cm.UserId == userId);
 
-            if (member?.UnreadCount > 0)
-            {
-                var unreadMessages = await _db.Messages
-                    .Where(m => m.ConversationId == data.conversation_id
-                                && m.Id > (member.LastReadMessageId ?? 0)
-                                && !m.IsDeleted)
-                    .OrderBy(m => m.Id)
-                    .Take(50)
-                    .Select(m => new MessageDto
-                    {
-                        id = m.Id,
-                        conversation_id = m.ConversationId,
-                        sender_id = m.SenderId,
-                        sender = new UserBriefDto
-                        {
-                            id = m.Sender.Id,
-                            display_name = m.Sender.DisplayName,
-                            avatar_url = m.Sender.AvatarUrl
-                        },
-                        type = m.Type.ToString().ToLower(),
-                        text = m.Text,
-                        created_at = m.CreatedAt
-                    })
-                    .ToListAsync();
+            //if (member?.UnreadCount > 0)
+            //{
+            //    var unreadMessages = await _db.Messages
+            //        .Where(m => m.ConversationId == data.conversation_id
+            //                    && m.Id > (member.LastReadMessageId ?? 0)
+            //                    && !m.IsDeleted)
+            //        .OrderBy(m => m.Id)
+            //        .Take(50)
+            //        .Select(m => new MessageDto
+            //        {
+            //            id = m.Id,
+            //            conversation_id = m.ConversationId,
+            //            sender_id = m.SenderId,
+            //            sender = new UserBriefDto
+            //            {
+            //                id = m.Sender.Id,
+            //                display_name = m.Sender.DisplayName,
+            //                avatar_url = m.Sender.AvatarUrl
+            //            },
+            //            type = m.Type.ToString().ToLower(),
+            //            text = m.Text,
+            //            created_at = m.CreatedAt
+            //        })
+            //        .ToListAsync();
 
-                await Clients.Caller.SendAsync("unread_messages", new
-                {
-                    conversation_id = data.conversation_id,
-                    messages = unreadMessages
-                });
+            //    await Clients.Caller.SendAsync("unread_messages", new
+            //    {
+            //        conversation_id = data.conversation_id,
+            //        messages = unreadMessages
+            //    });
 
-                // Сбрасываем счётчик непрочитанных в кэше
-                _chatCache.ResetUnreadCount(data.conversation_id, userId);
-            }
+            //    // Сбрасываем счётчик непрочитанных в кэше
+            //    _chatCache.ResetUnreadCount(data.conversation_id, userId);
+            //}
 
             _logger.LogDebug("User {UserId} joined conversation {ConversationId}", userId, data.conversation_id);
         }
@@ -511,11 +603,13 @@ namespace IDMChat.Hubs
             if (!chat.IsMember(userId))
                 return; // тихо игнорируем
 
+            var displayName = _userCache.GetDisplayName(userId) ?? userId.ToString();
+
             await Clients.Group(data.conversation_id.ToString()).SendAsync("typing_start", new
             {
                 conversation_id = data.conversation_id,
                 user_id = userId,
-                user_name = Context.User?.FindFirst(ClaimTypes.Name)?.Value ?? userId.ToString()
+                display_name = displayName
             });
         }
 
