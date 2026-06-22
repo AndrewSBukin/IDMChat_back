@@ -358,6 +358,8 @@ namespace IDMChat.Controllers
 
             // Уведомление участников (кроме себя)
             var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, ct);
+            if(conversation.Type == ConversationType.direct)
+                conversationUpdatedDto.name = await GetUserDisplayName(userId);
             var allMemberIdsStr = allMemberIds.Where(x => x != userId).Select(m => m.ToString()).ToList();
             await _hubContext.Clients.Users(allMemberIdsStr).SendAsync("conversation_new", conversationUpdatedDto, ct);
 
@@ -365,6 +367,29 @@ namespace IDMChat.Controllers
             //return StatusCode(201, response);
         }
 
+        async Task<string> GetConversationName(Conversation conversation, Guid userId)
+        {
+            string convName = conversation.Name;
+            if (conversation.Type == ConversationType.direct)
+            {
+                var user2 = await _db.Users
+                    .Where(u => u.Id == conversation.Members.First(x => x.UserId != userId).UserId)
+                    .Select(u => u.DisplayName)
+                    .FirstOrDefaultAsync();
+
+                convName = user2??"Имя не найдено";
+            }
+            return convName;
+        }
+
+        async Task<string> GetUserDisplayName(Guid userId)
+        {
+            var user2 = await _db.Users
+                .Where(u => u.Id == userId)
+                .Select(u => u.DisplayName)
+                .FirstOrDefaultAsync();
+            return user2;
+        }
         async Task<ConversationUpdatedDto> BuildConversationUpdatedDto(Conversation conversation, CancellationToken ct = default)
         {
             var message = await _db.Messages.Include(m => m.Conversation).AsTracking()
@@ -475,8 +500,24 @@ namespace IDMChat.Controllers
 
             // Отправляем всем участникам чата
             var allMemberIds = conversation.Members.Select(m => m.UserId.ToString()).ToList();
-            await _hubContext.Clients.Users(allMemberIds)
-                .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+            if (conversation.Type == ConversationType.direct)
+            {
+                var otherUserId = await _db.ConversationMembers.Where(cm => cm.ConversationId == id).Select(x => x.UserId)
+                .FirstOrDefaultAsync(u => u != userId, ct);
+
+                conversationUpdatedDto.name = await GetUserDisplayName(otherUserId);
+                await _hubContext.Clients.User(userId.ToString().ToLower())
+                    .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+
+                conversationUpdatedDto.name = await GetUserDisplayName(userId);
+                await _hubContext.Clients.User(otherUserId.ToString().ToLower())
+                    .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+            }
+            else
+            {
+                await _hubContext.Clients.Users(allMemberIds)
+                    .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+            }
 
             return Ok(conversationUpdatedDto);
         }
@@ -1130,8 +1171,24 @@ namespace IDMChat.Controllers
 
                     // Отправляем всем участникам чата
                     var allMemberIds = chat.Members.Select(m => m.UserId.ToString()).ToList();
-                    await _hubContext.Clients.Users(allMemberIds)
-                        .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                    if (message.Conversation.Type == ConversationType.direct)
+                    {
+                        var otherUserId = await _db.ConversationMembers.Where(cm => cm.ConversationId == id).Select(x => x.UserId)
+                        .FirstOrDefaultAsync(u => u != userId, ct);
+
+                        conversationUpdatedDto.name = await GetUserDisplayName(otherUserId);
+                        await _hubContext.Clients.User(userId.ToString().ToLower())
+                            .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+
+                        conversationUpdatedDto.name = await GetUserDisplayName(userId);
+                        await _hubContext.Clients.User(otherUserId.ToString().ToLower())
+                            .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                    }
+                    else
+                    {
+                        await _hubContext.Clients.Users(allMemberIds)
+                            .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                    }
                 }
             }
 
@@ -1194,7 +1251,7 @@ namespace IDMChat.Controllers
                     id = chat.Id,
                     type = chat.Type.ToString().ToLower(),
                     name = chat.Name,
-                    avatar_url = chat.AvatarUrl,
+                    avatar_url = chat.AvatarUrl ?? "",
                     last_message = null,
                     updated_at = message.UpdatedAt.Value
                 };
@@ -1234,8 +1291,6 @@ namespace IDMChat.Controllers
                         attachments = attachments
                     };
                     conversationUpdatedDto.last_message = lastMessagePreview;
-                    await _hubContext.Clients.Users(allMemberIds)
-                        .SendAsync("conversation_updated", conversationUpdatedDto, ct);
                 }
                 else
                 {
@@ -1244,6 +1299,22 @@ namespace IDMChat.Controllers
                     message.Conversation.LastMessageSenderId = null;
                     message.Conversation.LastMessageCreatedAt = null;
 
+                }
+                if (message.Conversation.Type == ConversationType.direct)
+                {
+                    var otherUserId = await _db.ConversationMembers.Where(cm => cm.ConversationId == id).Select(x => x.UserId)
+                    .FirstOrDefaultAsync(u => u != userId, ct);
+
+                    conversationUpdatedDto.name = await GetUserDisplayName(otherUserId);
+                    await _hubContext.Clients.User(userId.ToString().ToLower())
+                        .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+
+                    conversationUpdatedDto.name = await GetUserDisplayName(userId);
+                    await _hubContext.Clients.User(otherUserId.ToString().ToLower())
+                        .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                }
+                else
+                {
                     await _hubContext.Clients.Users(allMemberIds)
                         .SendAsync("conversation_updated", conversationUpdatedDto, ct);
                 }

@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Net.Mail;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace IDMChat.Hubs
 {
@@ -341,6 +342,19 @@ namespace IDMChat.Hubs
                     if (replyMessage == null)
                         throw new HubException("REPLY_TO_MESSAGE_NOT_FOUND");
 
+                    var reply_attachments = await _db.FileAttachments
+                        .Where(a => a.MessageId == replyMessage.Id)
+                        .Select(a => new AttachmentDto
+                        {
+                            id = a.Id,
+                            file_name = a.FileName,
+                            file_size = a.FileSize,
+                            mime_type = a.MimeType,
+                            url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
+                            thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                        })
+                        .ToListAsync(ct);
+
                     replyToObj = new
                     {
                         id = replyMessage.Id,
@@ -349,7 +363,8 @@ namespace IDMChat.Hubs
                         text = replyMessage.Text.Length > 100
                                 ? replyMessage.Text[..100] + "..."
                                 : replyMessage.Text,
-                        type = replyMessage.Type.ToString().ToLower()
+                        type = replyMessage.Type.ToString().ToLower(), 
+                        attachments = reply_attachments
                     };
                 }
 
@@ -472,17 +487,46 @@ namespace IDMChat.Hubs
 
                 var onlineMembers = _userCache.GetOnlineMembers(chat.Members).Where(m => m != userId).ToList();
 
+                string convName = conversation.Name;
+                if (conversation.Type == ConversationType.direct)
+                {
+                    var user2 = await _db.Users
+                        .Where(u => u.Id == members.First().UserId)
+                        .Select(u => new
+                        {
+                            u.Id,
+                            u.DisplayName,
+                            u.AvatarUrl,
+                            u.CustomStatus
+                        })
+                        .FirstOrDefaultAsync();
+
+                    convName = user2.DisplayName;
+                }
+
                 var conversationUpdatedDto = new ConversationUpdatedDto()
                 {
                     id = msg.conversation_id,
                     type = conversation.Type.ToString().ToLower(),
-                    name = conversation.Name,
-                    avatar_url = conversation.AvatarUrl,
+                    name = convName,
+                    avatar_url = conversation.AvatarUrl ?? "",
                     last_message = lastMessagePreview,
                     updated_at = message.CreatedAt
                 };
                 foreach (var memberId in onlineMembers)
                 {
+                    if (message.Conversation.Type == ConversationType.direct)
+                    {
+                        if (memberId != userId)
+                            conversationUpdatedDto.name = user.DisplayName;
+                        else
+                            conversationUpdatedDto.name = await GetUserDisplayName(onlineMembers.FirstOrDefault(u => u != memberId));
+                        await Clients.User(memberId.ToString().ToLower()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                    }
+                    else
+                    {
+                        await Clients.User(memberId.ToString()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                    }
                     await Clients.User(memberId.ToString()).SendAsync("conversation_updated", conversationUpdatedDto);
                     
                     // Обновляем счетчик непрочитанных у получателя
@@ -513,7 +557,16 @@ namespace IDMChat.Hubs
                 throw new HubException("MESSAGE_SEND_FAILED", ex);
             }
         }
-        
+
+        async Task<string> GetUserDisplayName(Guid userId)
+        {
+            var user2 = await _db.Users
+                .Where(u => u.Id == userId)
+                .Select(u => u.DisplayName)
+                .FirstOrDefaultAsync();
+            return user2;
+        }
+
         private MessageType ParseMessageType(string type)
         {
             return type?.ToLower() switch
