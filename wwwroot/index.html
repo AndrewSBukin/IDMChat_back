@@ -1,5 +1,23 @@
 <html>
     <head>
+        <style>
+            .field-group {
+                position: relative;
+                border: 1px solid #ccc;
+                padding: 20px;
+                margin-top: 10px;
+                border-radius: 4px;
+            }
+
+            .field-group-title {
+                position: absolute;
+                top: -10px;
+                left: 10px;
+                background: white; /* Цвет должен совпадать с фоном страницы */
+                padding: 0 5px;
+                font-weight: bold;
+            }
+        </style>
         <script src="signalr.min.js"></script>
         <script>
             //import * as signalR from "@microsoft/signalr";
@@ -31,6 +49,8 @@
                     token1 = data.access_token
                     document.getElementById("key1").value = token1;
                     document.getElementById("key11").value = data.refresh_token;
+
+                    document.getElementById("user1").value = data.user.display_name;
                 }
             }
 
@@ -66,6 +86,7 @@
                     token1 = data.access_token
                     document.getElementById("key1").value = token1;
                     document.getElementById("key11").value = data.refresh_token;
+                    document.getElementById("user1").value = data.user.display_name;
                 }
             }
             async function call(fn, p1, m) {
@@ -199,28 +220,37 @@
         <h1>IDMCHat Hub</h1>
         <button onclick="login1()">Login1</button>
         <button onclick="login2()">Login2</button>
-        <label for="key1">auth key</label>
-        <input id="key1" type="text" readonly />
-        <label for="key11">refresh key</label>
-        <input id="key11" type="text" />
-        <button onclick="refresh1()">Refresh1</button>
+        <label for="user1">User</label><input id="user1" type="text" readonly />
+        <label for="key1">auth key</label><input id="key1" type="text" readonly />
+        <label for="key11">refresh key</label><input id="key11" type="text" />
+        <button onclick="refresh1()">Refresh1</button><br />
         <button onclick="get_chats()">Chats</button>
         <button onclick="connect1()">Connect1</button>
         <br />
-        <label for="chat1">Chat</label><input id="chat1" type="text" />
-        <button onclick="openchat()">Open</button>
-        <button onclick="closechat()">Close</button>
-        <button onclick="typing(1)">StartTyping</button>
-        <button onclick="typing(0)">StopTyping</button>
-        <button onclick="send1()">Send1</button>
-        <label for="text1">Text</label><input id="text1" type="text" />
-        <label for="type1">Type</label><input id="type1" type="text" />
-        <label for="attach1">Attachments</label><input id="attach1" type="text" />
-        <br />
-        <div id="chats"></div>
-        <br />
-        <label for="readn">ReadUpto</label>
-        <input id="readn" type="number" />
-        <button onclick="read()">Read</button>
+        <div class="field-group">
+            <span class="field-group-title">Chat</span><br />
+            <label for="chat1">Chat</label><input id="chat1" type="text" />
+            <button onclick="openchat()">Open</button>
+            <button onclick="closechat()">Close</button>
+            <button onclick="typing(1)">StartTyping</button>
+            <button onclick="typing(0)">StopTyping</button>
+            <div class="field-group">
+                <span class="field-group-title">New message</span><br />
+                <label for="text1">Text</label><input id="text1" type="text" /><br />
+                <label for="type1">Type</label>
+                <select id="type1" name="type1">
+                    <option value="text" selected>text</option>
+                    <option value="image">image</option>
+                </select><br />
+                <label for="attach1">Attachments</label><input id="attach1" type="text" value="[]" /><br />
+                <button onclick="send1()">Send1</button>
+            </div>
+            <br />
+            <div id="chats"></div>
+            <br />
+            <label for="readn">ReadUpto</label>
+            <input id="readn" type="number" />
+            <button onclick="read()">Read</button>
+        </div>
     </body>
 </html>

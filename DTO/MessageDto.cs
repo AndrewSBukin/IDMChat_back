@@ -62,6 +62,7 @@ namespace IDMChat.DTO
         public string sender_name { get; set; } = string.Empty;
         public string text { get; set; } = string.Empty;
         public string type { get; set; } = string.Empty; // text, image, etc.
+        public List<AttachmentDto> attachments { get; set; } = new List<AttachmentDto>();
     }
 
     public class UserBriefDto

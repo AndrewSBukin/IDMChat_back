@@ -518,9 +518,12 @@ namespace IDMChat.Hubs
                     if (message.Conversation.Type == ConversationType.direct)
                     {
                         if (memberId != userId)
+                        {
                             conversationUpdatedDto.name = user.DisplayName;
+                            conversationUpdatedDto.avatar_url = user.AvatarUrl;
+                        }
                         else
-                            conversationUpdatedDto.name = await GetUserDisplayName(onlineMembers.FirstOrDefault(u => u != memberId));
+                            (conversationUpdatedDto.name, conversationUpdatedDto.avatar_url) = await GetUserDisplayNameAndAvatar(onlineMembers.FirstOrDefault(u => u != memberId));
                         await Clients.User(memberId.ToString().ToLower()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
                     }
                     else
@@ -562,13 +565,13 @@ namespace IDMChat.Hubs
             }
         }
 
-        async Task<string> GetUserDisplayName(Guid userId)
+        async Task<(string, string)> GetUserDisplayNameAndAvatar(Guid userId)
         {
             var user2 = await _db.Users
                 .Where(u => u.Id == userId)
-                .Select(u => u.DisplayName)
+                .Select(u => new { u.DisplayName, u.AvatarUrl })
                 .FirstOrDefaultAsync();
-            return user2;
+            return (user2.DisplayName, user2.AvatarUrl);
         }
 
         private MessageType ParseMessageType(string type)
