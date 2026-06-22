@@ -485,7 +485,6 @@ namespace IDMChat.Hubs
                     attachments = attachments
                 };
 
-                var onlineMembers = _userCache.GetOnlineMembers(chat.Members).Where(m => m != userId).ToList();
 
                 string convName = conversation.Name;
                 if (conversation.Type == ConversationType.direct)
@@ -513,6 +512,7 @@ namespace IDMChat.Hubs
                     last_message = lastMessagePreview,
                     updated_at = message.CreatedAt
                 };
+                var onlineMembers = _userCache.GetOnlineMembers(chat.Members).ToList();
                 foreach (var memberId in onlineMembers)
                 {
                     if (message.Conversation.Type == ConversationType.direct)
@@ -527,18 +527,19 @@ namespace IDMChat.Hubs
                     {
                         await Clients.User(memberId.ToString()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
                     }
-                    await Clients.User(memberId.ToString()).SendAsync("conversation_updated", conversationUpdatedDto);
                     
                     // Обновляем счетчик непрочитанных у получателя
                     var newUnreadCount = chat.GetUnreadCount(memberId);
                     await Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount });
                 }
 
-                await Clients.Caller.SendAsync("message_delivered", new
-                {
-                    message_id = message.Id,
-                    user_ids = onlineMembers  // список Guid
-                });
+                onlineMembers = onlineMembers.Where(m => m != userId).ToList();
+                if (onlineMembers.Count > 0)
+                    await Clients.Caller.SendAsync("message_delivered", new
+                    {
+                        message_id = message.Id,
+                        user_ids = onlineMembers  // список Guid
+                    });
 
                 _logger.LogDebug("Message {MessageId} sent to conversation {ConversationId} by {UserId}", message.Id, msg.conversation_id, userId);
             }

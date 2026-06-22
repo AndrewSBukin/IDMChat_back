@@ -134,11 +134,11 @@
                 con1.invoke("SendMessage",
                     {
                         "conversation_id": document.getElementById("chat1").value,
-                        "text": "",
+                        "text": document.getElementById("text1").value,
                         "temp_id": generateGUID(),
                         "reply_to_message_id": null,
-                        "type": "image",
-                        "attachment_ids": ["9aed46ed-dd98-423c-ae47-a63c4fe2ce6a"]
+                        "type": document.getElementById("type1").value,
+                        "attachment_ids": JSON.parse(document.getElementById("attach1").value)
                     }
                 );
             }
@@ -207,13 +207,15 @@
         <button onclick="get_chats()">Chats</button>
         <button onclick="connect1()">Connect1</button>
         <br />
-        <label for="chat1">Chat</label>
-        <input id="chat1" type="text" />
+        <label for="chat1">Chat</label><input id="chat1" type="text" />
         <button onclick="openchat()">Open</button>
         <button onclick="closechat()">Close</button>
         <button onclick="typing(1)">StartTyping</button>
         <button onclick="typing(0)">StopTyping</button>
         <button onclick="send1()">Send1</button>
+        <label for="text1">Text</label><input id="text1" type="text" />
+        <label for="type1">Type</label><input id="type1" type="text" />
+        <label for="attach1">Attachments</label><input id="attach1" type="text" />
         <br />
         <div id="chats"></div>
         <br />
