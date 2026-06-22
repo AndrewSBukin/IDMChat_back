@@ -527,10 +527,13 @@ namespace IDMChat.Hubs
                     {
                         await Clients.User(memberId.ToString()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
                     }
-                    
+
                     // Обновляем счетчик непрочитанных у получателя
-                    var newUnreadCount = chat.GetUnreadCount(memberId);
-                    await Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount });
+                    if (memberId != userId)
+                    {
+                        var newUnreadCount = chat.GetUnreadCount(memberId);
+                        await Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount });
+                    }
                 }
 
                 onlineMembers = onlineMembers.Where(m => m != userId).ToList();
