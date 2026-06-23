@@ -74,6 +74,15 @@
                 }
             }
 
+            async function upload() {
+                let type = document.getElementById("type2").value;
+                let data = await sendFile("media", type);
+                if (data) {
+                    console.log(data);
+                    document.getElementById("mediaid").value = data.id
+                }
+            }
+
             async function read(n) {
                 let data = await call("conversations/" + document.getElementById("chat1").value + "/read", {
                     "last_read_message_id": document.getElementById("readn").value
@@ -113,6 +122,38 @@
 
                 } catch (error) {
                     console.error(fn + " error:", error);
+                    return null;
+                }
+            }
+
+            async function sendFile(fileInputId, type) {
+                try {
+                    const fileInput = document.getElementById(fileInputId);
+                    const file = fileInput.files[0];
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('type', type);
+                    const response = await fetch('/api/v1/files/upload', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + token1
+                        },
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        console.error("post file failed:", error);
+                        return null;
+                    }
+
+                    const data = await response.json();
+
+                    console.log("post file successful");
+                    return data;
+
+                } catch (error) {
+                    console.error("post file error:", error);
                     return null;
                 }
             }
@@ -236,11 +277,14 @@
             <button onclick="typing(0)">StopTyping</button>
             <div class="field-group">
                 <span class="field-group-title">New message</span><br />
+                <select id="type2" name="type2"><option value="image" selected>image</option><option value="video">video</option>
+                </select><input id="media" type="file" /><button onclick="upload()">Upload</button><input id="mediaid" type="text" /><br />
                 <label for="text1">Text</label><input id="text1" type="text" /><br />
                 <label for="type1">Type</label>
                 <select id="type1" name="type1">
                     <option value="text" selected>text</option>
                     <option value="image">image</option>
+                    <option value="video">video</option>
                 </select><br />
                 <label for="attach1">Attachments</label><input id="attach1" type="text" value="[]" /><br />
                 <button onclick="send1()">Send1</button>

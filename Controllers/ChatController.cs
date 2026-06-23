@@ -80,7 +80,10 @@ namespace IDMChat.Controllers
                             id = m.UserId,
                             display_name = m.User.DisplayName,
                             avatar_url = m.User.AvatarUrl,
-                            status = m.User.IsOnline ? "online" : "offline"
+                            status = _userCache.IsOnline(m.UserId) ? "online" : "offline",
+                            custom_status = m.User.CustomStatus,
+                            is_online = _userCache.IsOnline(m.UserId), 
+                            last_seen_at = m.User.LastSeenAt
                         }).ToList()
                         : cm.Conversation.Members
                             .Where(m => m.UserId != userId)
@@ -935,18 +938,19 @@ namespace IDMChat.Controllers
                         sender_id = m.SenderId,
                         sender_name = m.Sender.DisplayName,
                         text = m.Text.Length > 100 ? m.Text.Substring(0, 100) + "..." : m.Text,
-                        type = m.Type.ToString().ToLower(), 
-                        attachments = m.ReplyToMessage.Attachments.Select(a => new AttachmentDto { 
-                            id = a.Id, 
-                            file_name = a.FileName, 
-                            file_size = a.FileSize, 
-                            mime_type = a.MimeType, 
+                        type = m.Type.ToString().ToLower(),
+                        attachments = m.FileAttachments.Select(a => new AttachmentDto
+                        {
+                            id = a.Id,
+                            file_name = a.FileName,
+                            file_size = a.FileSize,
+                            mime_type = a.MimeType,
                             thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null,
                             url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}"
                         }).ToList()
                     })
                     .ToListAsync(ct);
-
+                
                 replyMessages = replies.ToDictionary(r => r.id);
             }
 
@@ -1812,10 +1816,21 @@ namespace IDMChat.Controllers
             public string? avatar_url { get; set; }
             public string? status { get; set; }
             public bool is_online { get; set; }
+            public DateTime? last_seen_at { get; set; }
         }
 
         public class LastMessageResponse
         {
+            public LastMessageResponse() { }
+            public LastMessageResponse(Conversation conversation) {
+                id = conversation.LastMessage!.Id;
+                text = conversation.LastMessage.Text.Length > 100
+                    ? conversation.LastMessage.Text.Substring(0, 100) + "..."
+                    : conversation.LastMessage.Text;
+                type = conversation.LastMessage.Type.ToString().ToLower();
+                sender_id = conversation.LastMessage.SenderId;
+                created_at = conversation.LastMessage.CreatedAt;
+            }
             public long id { get; set; }
             public string text { get; set; } = string.Empty;
             public string type { get; set; } = string.Empty;
@@ -1838,13 +1853,14 @@ namespace IDMChat.Controllers
                     cm.UnreadCount,
                     Conversation = cm.Conversation,
                     Members = cm.Conversation.Members.Select(m => new MemberResponse
-                        {
-                            id = m.UserId,
-                            display_name = m.User.DisplayName,
-                            avatar_url = m.User.AvatarUrl,
-                            status = _userCache.IsOnline(m.UserId) ? "online" : "offline", 
-                            custom_status = m.User.CustomStatus, 
-                            is_online = _userCache.IsOnline(m.UserId)
+                    {
+                        id = m.UserId,
+                        display_name = m.User.DisplayName,
+                        avatar_url = m.User.AvatarUrl,
+                        status = _userCache.IsOnline(m.UserId) ? "online" : "offline", 
+                        custom_status = m.User.CustomStatus, 
+                        is_online = _userCache.IsOnline(m.UserId), 
+                        last_seen_at = m.User.LastSeenAt
                     }).ToList(),
                     LastMessage = cm.Conversation.LastMessageId != null
                         ? new LastMessageResponse
@@ -1875,14 +1891,13 @@ namespace IDMChat.Controllers
 
             if (data == null)
                 throw new NotFoundException("{\"error\": {\"code\": \"CONVERSATION_NOT_FOUND\", \"message\": \"Диалог не найден\"}}");
-            //return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
             return new ConversationResponse
             {
                 id = conversationId,
                 type = data.Conversation.Type.ToString(),
                 name = data.Conversation.Type == ConversationType.direct ? data.Members?.FirstOrDefault()?.display_name : data.Conversation.Name,
-                avatar_url = data.Conversation.AvatarUrl,
+                avatar_url = data.Conversation.Type == ConversationType.direct ? data.Members?.FirstOrDefault()?.avatar_url : data.Conversation.AvatarUrl,
                 is_pinned = data.IsPinned,
                 is_muted = data.IsMuted,
                 members = data.Members,

@@ -68,7 +68,7 @@ namespace IDMChat.Models
         [ForeignKey(nameof(SenderId))]
         public virtual User Sender { get; set; } = null!;
 
-        public virtual List<FileAttachment> Attachments { get; set; }
+        public virtual List<FileAttachment> FileAttachments { get; set; }
     }
 
     public enum MessageType

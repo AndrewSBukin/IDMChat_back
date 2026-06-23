@@ -445,7 +445,8 @@ namespace IDMChat.Hubs
                         u.Id,
                         u.DisplayName,
                         u.AvatarUrl,
-                        u.CustomStatus
+                        u.CustomStatus, 
+                        u.LastSeenAt
                     })
                     .FirstOrDefaultAsync();
 
@@ -462,7 +463,8 @@ namespace IDMChat.Hubs
                         avatar_url = user.AvatarUrl, 
                         status = "online", 
                         is_online = true,
-                        custom_status = user.CustomStatus
+                        custom_status = user.CustomStatus, 
+                        last_seen_at = user.LastSeenAt
                     },
                     reply_to = replyToObj,
                     attachments = attachments,
@@ -521,10 +523,16 @@ namespace IDMChat.Hubs
                         {
                             conversationUpdatedDto.name = user.DisplayName;
                             conversationUpdatedDto.avatar_url = user.AvatarUrl;
+                            await Clients.User(memberId.ToString().ToLower()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
                         }
                         else
-                            (conversationUpdatedDto.name, conversationUpdatedDto.avatar_url) = await GetUserDisplayNameAndAvatar(onlineMembers.FirstOrDefault(u => u != memberId));
-                        await Clients.User(memberId.ToString().ToLower()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                        {
+                            if (onlineMembers.Count > 1)
+                            {
+                                (conversationUpdatedDto.name, conversationUpdatedDto.avatar_url) = await GetUserDisplayNameAndAvatar(onlineMembers.FirstOrDefault(u => u != memberId));
+                                await Clients.User(memberId.ToString().ToLower()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                            }
+                        }
                     }
                     else
                     {

@@ -1,6 +1,7 @@
 ﻿using Asp.Versioning;
 using IDMChat.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -21,6 +22,15 @@ public class AuthController : ControllerBase
         _config = config;
     }
 
+    class IdmUser
+    {
+        public int Id { get; set; }
+        public string Username { get; set; }
+        public string Fio { get; set; }
+        public string Password { get; set; }
+        public string Idm { get; set; }
+        public bool Blocked { get; set; }
+    }
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
@@ -35,11 +45,36 @@ public class AuthController : ControllerBase
                 }
             });
         }
+        bool useIdmDb = false;
 
-        var user = await _dbContext.Users
-        .FirstOrDefaultAsync(u => u.Username == request.Username && u.IsActive);
+        IdmUser idmUser = new IdmUser();
+        if (useIdmDb)
+        {
+            using SqlConnection con = new SqlConnection("");
+            con.Open();
+            using SqlCommand cmd = con.CreateCommand();
+            cmd.CommandText = "SELECT s.id, fio, username, idm, p.password, case when ISNULL([isBlocked],0) = 1 OR ISNULL([isDeleted], 0) = 1 OR ISNULL([isBlackList], 0) = 1 OR statusesID <> 2 then 1 else 0 end blocked FROM sb_staff s join sb_staff_passwords p on p.login = s.username where s.username = @login";
+            cmd.Parameters.AddWithValue("login", request.Username);
+            using SqlDataReader dr =  await cmd.ExecuteReaderAsync();
+            if (dr.Read())
+            {
+                idmUser.Id = (int)dr["id"];
+                idmUser.Fio = (string)dr["fio"];
+                idmUser.Username = (string)dr["username"];
+                idmUser.Idm = (string)dr["idm"];
+                idmUser.Password = (string)dr["password"];
+                idmUser.Blocked = (int)dr["blocked"] == 1;
+            }
+        }
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Username == request.Username);
 
-        if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        if (user == null)
+        {
+            // TODO: try to find user in idmnew database
+            // if exists and active then copy to this database.
+        }
+
+        if (user == null || !user.IsActive || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
             return Unauthorized(new
             {
@@ -50,6 +85,8 @@ public class AuthController : ControllerBase
                 }
             });
         }
+
+        // TODO: check if user is active in 
 
         // Обновляем данные пользователя
         user.LastLoginAt = DateTime.UtcNow;
@@ -205,6 +242,11 @@ public class AuthController : ControllerBase
         {
             return NoContent();
         }
+
+        // Обновляем данные пользователя
+        refreshToken.User.LastSeenAt = DateTime.UtcNow;
+        _dbContext.Users.Update(refreshToken.User);
+        await _dbContext.SaveChangesAsync();
 
         refreshToken.RevokedAt = DateTime.UtcNow;
         _dbContext.RefreshTokens.Update(refreshToken);
