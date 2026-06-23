@@ -116,8 +116,11 @@ namespace IDMChat.Controllers
             {
                 var mediaInfo = await FFProbe.AnalyseAsync(filePath);
                 duration = (int)mediaInfo.Duration.TotalSeconds;
+                int ts = 5;
 
-                await GenerateVideoThumbnailAsync(filePath, thumbPath, TimeSpan.FromSeconds(5));
+                if (duration < 10)
+                    ts = (int)duration / 2;
+                await GenerateVideoThumbnailAsync(filePath, thumbPath, TimeSpan.FromSeconds(ts));
                 hasThumbnail = true;
             }
 
