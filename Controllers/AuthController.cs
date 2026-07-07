@@ -1,5 +1,6 @@
 ﻿using Asp.Versioning;
 using IDMChat.Models;
+using IDMChat.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -15,11 +16,13 @@ public class AuthController : ControllerBase
 {
     private readonly ChatDbContext _dbContext;
     private readonly IConfiguration _config;
+    private readonly IChatPathUrlResolver _urlResolver;
 
-    public AuthController(ChatDbContext dbContext, IConfiguration config)
+    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver)
     {
         _dbContext = dbContext;
         _config = config;
+        _urlResolver = urlResolver;
     }
 
     class IdmUser
@@ -100,7 +103,7 @@ public class AuthController : ControllerBase
             id = user.Id,
             username = user.Username,
             display_name = user.DisplayName ?? user.Username,
-            avatar_url = user.AvatarUrl, 
+            avatar_url = _urlResolver.ResolveUrl(user.AvatarUrl), 
             is_online = true, 
             last_seen_at = user.LastSeenAt
         };

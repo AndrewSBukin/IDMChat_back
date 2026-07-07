@@ -26,7 +26,7 @@ namespace IDMChat
 {
     public class Program
     {
-        public static string AppBaseUrl { get; set; } = "";
+        //public static string AppBaseUrl { get; set; } = "";
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
@@ -154,6 +154,8 @@ namespace IDMChat
             {
                 options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
             });
+            builder.Services.AddHttpContextAccessor();
+            builder.Services.AddScoped<IChatPathUrlResolver, ChatPathUrlResolver>();
 
             builder.Logging.AddConsole();
             builder.Logging.AddDebug(); // <-- ВАЖНО для вывода в VS

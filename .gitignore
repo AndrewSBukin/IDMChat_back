@@ -8,3 +8,5 @@ logs/
 wwwroot/media
 *.exe
 .vs
+.refact/
+PROJECT.pdf

@@ -3,6 +3,7 @@ using FFMpegCore;
 using FFMpegCore.Extend;
 using IDMChat.Middleware;
 using IDMChat.Models;
+using IDMChat.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,7 @@ namespace IDMChat.Controllers
         private readonly IWebHostEnvironment _environment;
         private readonly ILogger<FilesController> _logger;
         private readonly ChatDbContext _db;
+        private readonly IChatPathUrlResolver _urlResolver;
         private const long MaxFileSize = 100 * 1024 * 1024; // 100MB
 
         private static readonly HashSet<string> AllowedImageTypes = new()
@@ -59,12 +61,13 @@ namespace IDMChat.Controllers
             };
         }
 
-        public FilesController(ChatDbContext dbContext, IWebHostEnvironment environment, ILogger<FilesController> logger, IConfiguration configuration)
+        public FilesController(ChatDbContext dbContext, IWebHostEnvironment environment, ILogger<FilesController> logger, IConfiguration configuration, IChatPathUrlResolver urlResolver)
         {
             _db = dbContext;
             _environment = environment;
             _logger = logger;
             _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+            _urlResolver = urlResolver;
         }
 
         [HttpPost("upload")]
@@ -158,8 +161,8 @@ namespace IDMChat.Controllers
                 FileName = file.FileName,
                 FileSize = file.Length,
                 MimeType = file.ContentType,
-                Url = $"{Program.AppBaseUrl}/api/files/files/{datePath}/{fileName}",
-                ThumbnailUrl = hasThumbnail ? $"{Program.AppBaseUrl}/api/files/files/{datePath}/{thumbFileName}" : null,
+                Url = _urlResolver.ResolveUrl(storageRelativePath),
+                ThumbnailUrl = _urlResolver.ResolveUrl(thumbnailRelativePath),
                 Duration = duration
             });
         }
@@ -170,25 +173,6 @@ namespace IDMChat.Controllers
             return (int)Math.Ceiling(mediaInfo.Duration.TotalSeconds);
         }
 
-        //private async Task GenerateThumbnail(string sourcePath, string destPath, int width, int height)
-        //{
-        //    using var image = await Image.LoadAsync(sourcePath);
-
-        //    // Вычисляем пропорции
-        //    var ratio = Math.Min((double)width / image.Width, (double)height / image.Height);
-        //    var newWidth = (int)(image.Width * ratio);
-        //    var newHeight = (int)(image.Height * ratio);
-
-        //    image.Mutate(x => x
-        //        .Resize(newWidth, newHeight)
-        //        .BackgroundColor(Color.White));  // белый фон для прозрачных PNG
-
-        //    // Сохраняем как JPEG (экономит место)
-        //    await image.SaveAsync(destPath, new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder
-        //    {
-        //        Quality = 85  // хорошее качество при небольшом размере
-        //    });
-        //}
         private async Task GenerateImageThumbnailWithFfmpeg(string inputPath, string outputPath, int width, int height)
         {
             await FFMpegArguments
@@ -212,18 +196,6 @@ namespace IDMChat.Controllers
                 .ProcessAsynchronously();
         }
 
-        //private async Task GenerateVideoThumbnail(string videoPath, string thumbPath)
-        //{
-        //    await FFMpegArguments
-        //        .FromFileInput(videoPath)
-        //        .OutputToFile(thumbPath, false, options => options
-        //            .Seek(TimeSpan.FromSeconds(5))
-        //            .WithVideoCodec("mjpeg")
-        //            .WithFrameOutputCount(1)
-        //            .WithVideoFilters(f => f.Scale(320, 240)))
-        //        .ProcessAsynchronously();
-        //}
-
         [HttpGet("{**filePath}")]
         public async Task<IActionResult> GetFile(string filePath, CancellationToken ct = default)
         {
@@ -243,15 +215,14 @@ namespace IDMChat.Controllers
             if (decodedPath.StartsWith("files/"))
             {
                 // Файлы чата — проверяем через БД
-                var attachment = await _db.FileAttachments
-                    .FirstOrDefaultAsync(f => f.StoragePath == decodedPath || f.ThumbnailPath == decodedPath, ct);
+                var attachment = await _db.FileAttachments.FirstOrDefaultAsync(f => f.StoragePath == decodedPath || f.ThumbnailPath == decodedPath, ct);
 
                 if (attachment != null)
                 {
                     if (attachment.ConversationId == null || attachment.ConversationId == Guid.Empty)
                     {
                         log += "attachment without conversationid;";
-                        isAuthorized = true;
+                        isAuthorized = (attachment.UserId == userId);
                     }
                     else
                         isAuthorized = await _db.ConversationMembers.AnyAsync(cm => (cm.ConversationId == attachment.ConversationId) && cm.UserId == userId, ct);

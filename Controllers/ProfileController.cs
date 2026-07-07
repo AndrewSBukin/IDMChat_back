@@ -1,6 +1,7 @@
 ﻿using Asp.Versioning;
 using IDMChat.Middleware;
 using IDMChat.Models;
+using IDMChat.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,31 +18,31 @@ public class ProfileController : ControllerBase
     private readonly ChatDbContext _dbContext;
     private readonly IWebHostEnvironment _env;
     private readonly IConfiguration _config;
+    private readonly IChatPathUrlResolver _urlResolver;
     private readonly string _storageBasePath;
 
-    public ProfileController(ChatDbContext dbContext, IWebHostEnvironment env, IConfiguration configuration)
+    public ProfileController(ChatDbContext dbContext, IWebHostEnvironment env, IConfiguration configuration, IChatPathUrlResolver urlResolver)
     {
         _dbContext = dbContext;
         _env = env;
         _config = configuration;
         _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+        _urlResolver = urlResolver;
     }
 
     [HttpGet("")]
     public async Task<IActionResult> GetProfile()
     {
-        var userId = HttpContext.GetCurrentUserId();
         var user = HttpContext.GetCurrentUser();
 
-        if (user == null)
-            return NotFound();
+        if (user == null) return NotFound();
 
         return Ok(new
         {
             id = user.Id,
             username = user.Username,
             display_name = string.IsNullOrEmpty(user.DisplayName) ? user.Username : user.DisplayName,
-            avatar_url = user.AvatarUrl,
+            avatar_url = _urlResolver.ResolveUrl(user.AvatarUrl),
             phone = user.Phone ?? string.Empty,
             email = user.Email ?? string.Empty,
             status = user.Status.ToString().ToLowerInvariant(),
@@ -83,7 +84,7 @@ public class ProfileController : ControllerBase
             id = user.Id,
             username = user.Username,
             display_name = string.IsNullOrEmpty(user.DisplayName) ? user.Username : user.DisplayName,
-            avatar_url = user.AvatarUrl,
+            avatar_url = _urlResolver.ResolveUrl(user.AvatarUrl),
             phone = user.Phone ?? string.Empty,
             email = user.Email ?? string.Empty,
             status = user.Status.ToString().ToLowerInvariant(),
@@ -116,13 +117,11 @@ public class ProfileController : ControllerBase
         if (user == null)
             return NotFound(new { error = new { code = "NO_USER", message = "Пользователь не найден" } });
 
-        // Создаем папку для аватаров
-        var uploadsFolder = Path.Combine(_storageBasePath, "avatars", "users");
-        Directory.CreateDirectory(uploadsFolder);
-
         // Генерируем уникальное имя файла
         var subFolder = userId.ToString().Substring(0, 2); // "a1"
-        var userFolder = Path.Combine(uploadsFolder, subFolder);
+
+        // Создаем папку для аватаров
+        var userFolder = Path.Combine(_storageBasePath, "avatars", "users", subFolder);
         Directory.CreateDirectory(userFolder);
 
         var fileName = $"{userId}_{DateTime.UtcNow.Ticks}{extension}";
@@ -134,24 +133,21 @@ public class ProfileController : ControllerBase
             await file.CopyToAsync(stream);
         }
 
-        // Формируем URL
-        var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        var avatarUrl = $"{baseUrl}/api/files/avatars/users/{subFolder}/{fileName}";
-
         // Удаляем старый аватар, если есть
         if (!string.IsNullOrEmpty(user.AvatarUrl))
         {
-            var oldFilePath = Path.Combine(_storageBasePath, user.AvatarUrl.Replace(baseUrl, "").TrimStart('/'));
+            var oldFilePath = Path.Combine(_storageBasePath, user.AvatarUrl.Replace('/', Path.DirectorySeparatorChar));
             _ = Task.Run(() => { 
                 if (System.IO.File.Exists(oldFilePath))
                     System.IO.File.Delete(oldFilePath); });
         }
 
-        user.AvatarUrl = avatarUrl;
+        var relativePath = $"avatars/users/{subFolder}/{fileName}";
+        user.AvatarUrl = relativePath;
         _dbContext.Users.Update(user);
         await _dbContext.SaveChangesAsync();
 
-        return Ok(new { avatar_url = avatarUrl });
+        return Ok(new { avatar_url = _urlResolver.ResolveUrl(relativePath) });
     }
 }
 

@@ -3,6 +3,7 @@ using IDMChat.Controllers;
 using IDMChat.Domain;
 using IDMChat.DTO;
 using IDMChat.Models;
+using IDMChat.Services;
 using IDMChat.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -21,13 +22,15 @@ namespace IDMChat.Hubs
         private readonly ChatStateCache _chatCache;
         private readonly UserCache _userCache;
         private readonly ILogger<ChatHub> _logger;
+        private readonly IChatPathUrlResolver _urlResolver;
 
-        public ChatHub(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger)
+        public ChatHub(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver)
         {
             _db = dbContext;
             _chatCache = chatCache;
             _userCache = userCache;
             _logger = logger;
+            _urlResolver = urlResolver;
         }
 
         public override async Task OnConnectedAsync()
@@ -350,8 +353,8 @@ namespace IDMChat.Hubs
                             file_name = a.FileName,
                             file_size = a.FileSize,
                             mime_type = a.MimeType,
-                            url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
-                            thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                            url = _urlResolver.ResolveUrl(a.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
                         })
                         .ToListAsync(ct);
 
@@ -406,8 +409,8 @@ namespace IDMChat.Hubs
                             file_name = f.FileName,
                             file_size = f.FileSize,
                             mime_type = f.MimeType,
-                            url = $"{Program.AppBaseUrl}/api/files/{f.StoragePath}",
-                            thumbnail_url = f.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{f.ThumbnailPath}" : null
+                            url = _urlResolver.ResolveUrl(f.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath)
                         })
                     .ToList();
                 }

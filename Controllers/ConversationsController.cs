@@ -4,6 +4,7 @@ using IDMChat.DTO;
 using IDMChat.Hubs;
 using IDMChat.Middleware;
 using IDMChat.Models;
+using IDMChat.Services;
 using IDMChat.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -34,6 +35,7 @@ namespace IDMChat.Controllers
         private readonly ChatStateCache _cache;
         private readonly UserCache _userCache;
         private readonly IHubContext<ChatHub> _hubContext;
+        private readonly IChatPathUrlResolver _urlResolver;
         private readonly string _storageBasePath;
 
         public ConversationsController(
@@ -41,7 +43,8 @@ namespace IDMChat.Controllers
             ILogger<ConversationsController> logger,
             ChatStateCache cache, UserCache ucache,
             IHubContext<ChatHub> hubContext, 
-            IConfiguration configuration)
+            IConfiguration configuration,
+            IChatPathUrlResolver urlResolver)
         {
             _db = dbContext;
             _logger = logger;
@@ -49,6 +52,7 @@ namespace IDMChat.Controllers
             _userCache = ucache;
             _hubContext = hubContext;
             _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+            _urlResolver = urlResolver;
         }
 
         #region Conversations
@@ -406,8 +410,8 @@ namespace IDMChat.Controllers
                     file_name = a.FileName,
                     file_size = a.FileSize,
                     mime_type = a.MimeType,
-                    url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
-                    thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                    url = _urlResolver.ResolveUrl(a.StoragePath),
+                    thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
                 })
                 .ToListAsync(ct);
 
@@ -945,8 +949,8 @@ namespace IDMChat.Controllers
                             file_name = a.FileName,
                             file_size = a.FileSize,
                             mime_type = a.MimeType,
-                            thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null,
-                            url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}"
+                            url = _urlResolver.ResolveUrl(a.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
                         }).ToList()
                     })
                     .ToListAsync(ct);
@@ -970,8 +974,8 @@ namespace IDMChat.Controllers
                             file_name = f.FileName,
                             file_size = f.FileSize,
                             mime_type = f.MimeType,
-                            url = $"{Program.AppBaseUrl}/api/files/{f.StoragePath}",
-                            thumbnail_url = f.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{f.ThumbnailPath}" : null
+                            url = _urlResolver.ResolveUrl(f.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath)
                         }
                     })
                     .ToListAsync(ct);
@@ -1143,8 +1147,8 @@ namespace IDMChat.Controllers
                     file_name = a.FileName,
                     file_size = a.FileSize,
                     mime_type = a.MimeType,
-                    url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
-                    thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                    url = _urlResolver.ResolveUrl(a.StoragePath),
+                    thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
                 })
                 .ToListAsync(ct);
 
@@ -1285,8 +1289,8 @@ namespace IDMChat.Controllers
                             file_name = a.FileName,
                             file_size = a.FileSize,
                             mime_type = a.MimeType,
-                            url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
-                            thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                            url = _urlResolver.ResolveUrl(a.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
                         })
                         .ToListAsync(ct);
                     var sender_name = _userCache.GetDisplayName(prevMessage.SenderId);
@@ -1646,7 +1650,7 @@ namespace IDMChat.Controllers
             // Удаляем старый аватар, если есть
             if (!string.IsNullOrEmpty(conversation.AvatarUrl))
             {
-                var oldFilePath = Path.Combine(_storageBasePath, conversation.AvatarUrl.Replace($"{Request.Scheme}://{Request.Host}/api/files/", ""));
+                var oldFilePath = Path.Combine(_storageBasePath, conversation.AvatarUrl);
                 _ = Task.Run(() => {
                     if (System.IO.File.Exists(oldFilePath))
                         try { System.IO.File.Delete(oldFilePath); } catch { }
@@ -1663,7 +1667,7 @@ namespace IDMChat.Controllers
             }
 
             // 6. Формируем URL
-            var avatarUrl = $"{Program.AppBaseUrl}/api/files/avatars/conversations/{fileName}";
+            var avatarUrl = Path.Combine("avatars", "conversations", fileName);
 
             // 7. Обновляем запись в БД
             conversation.AvatarUrl = avatarUrl;
@@ -1682,7 +1686,7 @@ namespace IDMChat.Controllers
             await _hubContext.Clients.Users(allMemberIds)
                 .SendAsync("conversation_updated", conversationUpdatedDto, ct);
 
-            return Ok(new { avatar_url = avatarUrl });
+            return Ok(new { avatar_url = _urlResolver.ResolveUrl(avatarUrl) });
         }
         #endregion
 
@@ -1880,8 +1884,8 @@ namespace IDMChat.Controllers
                                     file_name = a.FileName,
                                     file_size = a.FileSize,
                                     mime_type = a.MimeType,
-                                    url = $"{Program.AppBaseUrl}/api/files/{a.StoragePath}",
-                                    thumbnail_url = a.ThumbnailPath != null ? $"{Program.AppBaseUrl}/api/files/{a.ThumbnailPath}" : null
+                                    url = _urlResolver.ResolveUrl(a.StoragePath),
+                                    thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
                                 })
                                 .ToList()
                         }
