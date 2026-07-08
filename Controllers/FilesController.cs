@@ -201,7 +201,7 @@ namespace IDMChat.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> GetFile(string filePath, [FromQuery] string? token, CancellationToken ct = default)
         {
-            var userId = HttpContext.GetCurrentUserId();
+            //var userId = HttpContext.GetCurrentUserId();
 
             var rawPath = Uri.UnescapeDataString(filePath).Replace('\\', '/');
             string relativePath = rawPath;
@@ -231,31 +231,31 @@ namespace IDMChat.Controllers
                 return NotFound(new { error = new { code = "FILE_NOT_FOUND", message = "Файл не найден" } });
 
             // 3. Проверка доступа в зависимости от типа пути
-            var isAuthorized = false;
+            var isAuthorized = true;
             var log = "decodedPath:"+ decodedPath+";";
-            if (decodedPath.StartsWith("files/"))
-            {
-                // Файлы чата — проверяем через БД
-                var attachment = await _db.FileAttachments.FirstOrDefaultAsync(f => f.StoragePath == decodedPath || f.ThumbnailPath == decodedPath, ct);
+            //if (decodedPath.StartsWith("files/"))
+            //{
+            //    // Файлы чата — проверяем через БД
+            //    var attachment = await _db.FileAttachments.FirstOrDefaultAsync(f => f.StoragePath == decodedPath || f.ThumbnailPath == decodedPath, ct);
 
-                if (attachment != null)
-                {
-                    if (attachment.ConversationId == null || attachment.ConversationId == Guid.Empty)
-                    {
-                        log += "attachment without conversationid;";
-                        isAuthorized = (attachment.UserId == userId);
-                    }
-                    else
-                        isAuthorized = await _db.ConversationMembers.AnyAsync(cm => (cm.ConversationId == attachment.ConversationId) && cm.UserId == userId, ct);
-                }
-                else
-                    log += "attachment not found;";
-            }
-            else if (decodedPath.StartsWith("avatars/"))
-            {
-                // Аватар доступен всем авторизованным
-                isAuthorized = true;
-            }
+            //    if (attachment != null)
+            //    {
+            //        if (attachment.ConversationId == null || attachment.ConversationId == Guid.Empty)
+            //        {
+            //            log += "attachment without conversationid;";
+            //            isAuthorized = (attachment.UserId == userId);
+            //        }
+            //        else
+            //            isAuthorized = await _db.ConversationMembers.AnyAsync(cm => (cm.ConversationId == attachment.ConversationId) && cm.UserId == userId, ct);
+            //    }
+            //    else
+            //        log += "attachment not found;";
+            //}
+            //else if (decodedPath.StartsWith("avatars/"))
+            //{
+            //    // Аватар доступен всем авторизованным
+            //    isAuthorized = true;
+            //}
 
             if (!isAuthorized)
                 return StatusCode(403, new { error = new { code = "FORBIDDEN", message = "Доступ запрещён", log } });
