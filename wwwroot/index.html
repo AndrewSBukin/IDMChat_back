@@ -192,7 +192,8 @@
                     console.log("Con2: connected ");
                 });
             }
-            function send1() {
+function send1() {
+    console.log(document.getElementById("mention1").value);
                 con1.invoke("SendMessage",
                     {
                         "conversation_id": document.getElementById("chat1").value,
@@ -200,7 +201,8 @@
                         "temp_id": generateGUID(),
                         "reply_to_message_id": null,
                         "type": document.getElementById("type1").value,
-                        "attachment_ids": JSON.parse(document.getElementById("attach1").value)
+                        "attachment_ids": JSON.parse(document.getElementById("attach1").value),
+                        "mentions": JSON.parse(document.getElementById("mention1").value)
                     }
                 );
             }
@@ -277,7 +279,9 @@
             <button onclick="typing(0)">StopTyping</button>
             <div class="field-group">
                 <span class="field-group-title">New message</span><br />
-                <select id="type2" name="type2"><option value="image" selected>image</option><option value="video">video</option>
+                <select id="type2" name="type2">
+                    <option value="image" selected>image</option>
+                    <option value="video">video</option>
                 </select><input id="media" type="file" /><button onclick="upload()">Upload</button><input id="mediaid" type="text" /><br />
                 <label for="text1">Text</label><input id="text1" type="text" /><br />
                 <label for="type1">Type</label>
@@ -287,6 +291,7 @@
                     <option value="video">video</option>
                 </select><br />
                 <label for="attach1">Attachments</label><input id="attach1" type="text" value="[]" /><br />
+                <label for="mention1">Mentions</label><input id="mention1" type="text" value="[]" /><br />
                 <button onclick="send1()">Send1</button>
             </div>
             <br />

@@ -1,9 +1,9 @@
 
 using Asp.Versioning;
+using FFMpegCore.Enums;
 using IDMChat.Domain;
 using IDMChat.Hubs;
 using IDMChat.Middleware;
-
 //using IDMChat.Middleware;
 using IDMChat.Models;
 using IDMChat.Services;
@@ -15,12 +15,12 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
+using NLog;
+using NLog.Web;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System.ComponentModel.DataAnnotations;
 using System.Text;
 using System.Text.Json;
-using NLog;
-using NLog.Web;
 
 namespace IDMChat
 {
@@ -197,6 +197,14 @@ namespace IDMChat
                             message = rateLimitEx.Message,
                             retryAfter = rateLimitEx.RetryAfterSeconds
                         });
+                    }
+                    else if(exception is UnauthorizedAccessException)
+                    {
+                        var ex = exception as UnauthorizedAccessException;
+                        context.Response.StatusCode = 403;
+                        context.Response.ContentType = "application/json";
+
+                        await context.Response.WriteAsJsonAsync(ex.Message);
                     }
                     else
                     {

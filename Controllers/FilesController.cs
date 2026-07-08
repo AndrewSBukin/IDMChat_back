@@ -198,12 +198,32 @@ namespace IDMChat.Controllers
         }
 
         [HttpGet("{**filePath}")]
-        public async Task<IActionResult> GetFile(string filePath, CancellationToken ct = default)
+        [AllowAnonymous]
+        public async Task<IActionResult> GetFile(string filePath, [FromQuery] string? token, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
 
+            var rawPath = Uri.UnescapeDataString(filePath).Replace('\\', '/');
+            string relativePath = rawPath;
+
+            if (rawPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                rawPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                var uri = new Uri(rawPath);
+                relativePath = uri.AbsolutePath; // Всегда вернет чистый путь от корня: "/api/files/files/2026/..."
+            }
+
+            relativePath = relativePath.Trim('/');
+            var prefix = "api/files/";
+            if (relativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                relativePath = relativePath.Substring(prefix.Length);
+            }
+
+            var decodedPath = relativePath.Trim('/');
+
             // 1. Декодируем путь
-            var decodedPath = Uri.UnescapeDataString(filePath);
+            //var decodedPath = Uri.UnescapeDataString(filePath);
             var fullPath = Path.Combine(_storageBasePath, decodedPath);
 
             // 2. Проверяем существование файла

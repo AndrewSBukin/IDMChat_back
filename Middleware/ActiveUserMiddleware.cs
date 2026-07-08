@@ -84,12 +84,20 @@ namespace IDMChat.Middleware
         /// <exception cref="UnauthorizedAccessException"></exception>
         public static Guid GetCurrentUserId(this HttpContext context)
         {
-            var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!Guid.TryParse(userIdClaim, out var userId))
-                throw new UnauthorizedAccessException(
-                    "{\"error\": {\"code\": \"INVALID_USER_ID\", \"message\": \"Неверный идентификатор пользователя\"}}");
+            try
+            {
+                var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(userIdClaim, out var userId))
+                    throw new UnauthorizedAccessException(
+                        "{\"error\": {\"code\": \"INVALID_USER_ID\", \"message\": \"Неверный идентификатор пользователя\"}}");
 
-            return userId;
+                return userId;
+            }
+            catch (Exception ex)
+            {
+                throw new UnauthorizedAccessException(
+                        "{\"error\": {\"code\": \"NOT_AUTHENTICATED\", \"message\": \"Нет доступа\"}}");
+            }
         }
     }
 }

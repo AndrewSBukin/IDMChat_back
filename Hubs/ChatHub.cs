@@ -298,8 +298,8 @@ namespace IDMChat.Hubs
 
         public class MentionItem
         {
-            public Guid user_id { get; internal set; }
-            public string display_name { get; internal set; }
+            public Guid user_id { get; set; }
+            public string display_name { get; set; }
         }
         public class NewMessageRequest
         {
@@ -309,7 +309,7 @@ namespace IDMChat.Hubs
             public long? reply_to_message_id { get; set; }
             public string type { get; set; }
             public List<Guid>? attachment_ids { get; set; }
-            public List<MentionItem> mentions { get; internal set; }
+            public List<MentionItem> mentions { get; set; }
         }
         public async Task SendMessage(NewMessageRequest msg)
         {
@@ -499,7 +499,8 @@ namespace IDMChat.Hubs
                     sender_id = userId, 
                     sender_name = sender.DisplayName ?? "-",
                     created_at = message.CreatedAt,
-                    attachments = attachments
+                    attachments = attachments, 
+                    mentions = mentionsDto
                 };
 
                 var onlineMembers = _userCache.GetOnlineMembers(chat.Members).ToList();
