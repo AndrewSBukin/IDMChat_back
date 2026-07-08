@@ -50,6 +50,7 @@ namespace IDMChat
             builder.Services.AddMemoryCache();
             builder.Services.AddSingleton<ChatStateCache>();
             builder.Services.AddSingleton<UserCache>();
+            builder.Services.AddHostedService<CacheWarmupService>();
             builder.Services.AddSignalR(options =>
             {
                 options.KeepAliveInterval = TimeSpan.FromSeconds(15);

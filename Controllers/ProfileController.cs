@@ -1,4 +1,5 @@
 ﻿using Asp.Versioning;
+using IDMChat.DTO;
 using IDMChat.Middleware;
 using IDMChat.Models;
 using IDMChat.Services;
@@ -37,7 +38,7 @@ public class ProfileController : ControllerBase
 
         if (user == null) return NotFound();
 
-        return Ok(new
+        return Ok(new ProfileDto()
         {
             id = user.Id,
             username = user.Username,
@@ -51,6 +52,7 @@ public class ProfileController : ControllerBase
             last_seen_at = user.LastSeenAt
         });
     }
+
 
     [HttpPatch("")]
     public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
@@ -79,7 +81,7 @@ public class ProfileController : ControllerBase
         _dbContext.Users.Update(user);
         await _dbContext.SaveChangesAsync();
 
-        return Ok(new
+        return Ok(new ProfileDto()
         {
             id = user.Id,
             username = user.Username,
@@ -147,15 +149,6 @@ public class ProfileController : ControllerBase
         _dbContext.Users.Update(user);
         await _dbContext.SaveChangesAsync();
 
-        return Ok(new { avatar_url = _urlResolver.ResolveUrl(relativePath) });
+        return Ok(new AvatarDto (){ avatar_url = _urlResolver.ResolveUrl(relativePath) });
     }
-}
-
-public class UpdateProfileRequest
-{
-    public string? display_name { get; set; }
-    public string? phone { get; set; }
-    public string? email { get; set; }
-    public UserPresenceStatus? status { get; set; }
-    public string? custom_status { get; set; }
 }

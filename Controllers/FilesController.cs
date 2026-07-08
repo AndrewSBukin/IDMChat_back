@@ -1,6 +1,7 @@
 ﻿using Asp.Versioning;
 using FFMpegCore;
 using FFMpegCore.Extend;
+using IDMChat.DTO;
 using IDMChat.Middleware;
 using IDMChat.Models;
 using IDMChat.Services;
@@ -253,17 +254,6 @@ namespace IDMChat.Controllers
             Video,
             File,
             Voice
-        }
-
-        public class UploadFileResponse
-        {
-            public Guid Id { get; set; }
-            public string FileName { get; set; } = string.Empty;
-            public long FileSize { get; set; }
-            public string MimeType { get; set; } = string.Empty;
-            public string Url { get; set; } = string.Empty;
-            public string? ThumbnailUrl { get; set; }
-            public int? Duration { get; set; }
         }
     }
 }

@@ -52,8 +52,6 @@ namespace IDMChat.Hubs
 
             if (user != null)
             {
-                _userCache.AddOrUpdateUser(userId, user.DisplayName);
-
                 var now = DateTime.UtcNow;
                 await _db.Users
                     .Where(u => u.Id == userId)
@@ -298,6 +296,11 @@ namespace IDMChat.Hubs
             }
         }
 
+        public class MentionItem
+        {
+            public Guid user_id { get; internal set; }
+            public string display_name { get; internal set; }
+        }
         public class NewMessageRequest
         {
             public Guid conversation_id { get; set; }
@@ -306,6 +309,7 @@ namespace IDMChat.Hubs
             public long? reply_to_message_id { get; set; }
             public string type { get; set; }
             public List<Guid>? attachment_ids { get; set; }
+            public List<MentionItem> mentions { get; internal set; }
         }
         public async Task SendMessage(NewMessageRequest msg)
         {
@@ -324,7 +328,6 @@ namespace IDMChat.Hubs
 
                 // 1. Дедупликация
                 var exists = await _db.Messages.AnyAsync(m => m.ConversationId == msg.conversation_id && m.ClientTempId == msg.temp_id);
-
                 if (exists)
                 {
                     await Clients.Caller.SendAsync("message_duplicate", new { temp_id = msg.temp_id });
@@ -341,7 +344,7 @@ namespace IDMChat.Hubs
                         .Include(m => m.Sender)
                         .FirstOrDefaultAsync(m => m.Id == msg.reply_to_message_id
                                                     && m.ConversationId == msg.conversation_id
-                                                    && !m.IsDeleted);
+                                                    && !m.IsDeleted, ct);
                     if (replyMessage == null)
                         throw new HubException("REPLY_TO_MESSAGE_NOT_FOUND");
 
@@ -362,7 +365,7 @@ namespace IDMChat.Hubs
                     {
                         id = replyMessage.Id,
                         sender_id = replyMessage.SenderId,
-                        sender_name = replyMessage.Sender.DisplayName,
+                        sender_name = replyMessage.Sender.DisplayName ?? "-",
                         text = replyMessage.Text.Length > 100
                                 ? replyMessage.Text[..100] + "..."
                                 : replyMessage.Text,
@@ -389,7 +392,29 @@ namespace IDMChat.Hubs
                 _db.Messages.Add(message);
                 await _db.SaveChangesAsync(ct); // message.Id заполняется
 
-                // 5. Привязка вложений
+                // 5. Обработка упоминаний (Mentions) — НАША НОВАЯ ФИЧА
+                var mentionsDto = new List<UserMention>();
+                if (msg.mentions != null && msg.mentions.Any())
+                {
+                    // Тегнуть можно только тех, кто состоит в этом чате (Валидация по кэшу чата в памяти)
+                    var validMentions = msg.mentions
+                        .Where(m => chat.Members.Contains(m.user_id))
+                        .Distinct()
+                        .ToList();
+
+                    if (validMentions.Any())
+                    {
+                        foreach (var m in validMentions)
+                        {
+                            // Пишем связь в новую промежуточную таблицу (Запросы накопятся в контексте)
+                            _db.MessageMentions.Add(new MessageMention { MessageId = message.Id, UserId = m.user_id, DisplayName = m.display_name  });
+
+                            mentionsDto.Add(new UserMention(m.user_id, m.display_name));
+                        }
+                    }
+                }
+
+                // 6. Привязка вложений
                 var attachments = new List<AttachmentDto>();
                 if (msg.attachment_ids != null && msg.attachment_ids.Any())
                 {
@@ -417,22 +442,18 @@ namespace IDMChat.Hubs
 
                 var truncatedText = (msg.text ?? string.Empty).Length > 100 ? msg.text[..100] + "..." : (msg.text ?? string.Empty);
 
-                var conversation = await _db.Conversations.FindAsync(msg.conversation_id);
-                conversation.LastMessageId = message.Id;
-                conversation.LastMessageText = truncatedText;
-                conversation.LastMessageSenderId = userId;
-                conversation.LastMessageCreatedAt = message.CreatedAt;
-                conversation.UpdatedAt = message.CreatedAt;
-                _db.Conversations.Update(conversation);
+                await _db.Conversations
+                    .Where(c => c.Id == msg.conversation_id)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(c => c.LastMessageId, message.Id)
+                        .SetProperty(c => c.LastMessageText, truncatedText)
+                        .SetProperty(c => c.LastMessageSenderId, userId)
+                        .SetProperty(c => c.LastMessageCreatedAt, message.CreatedAt)
+                        .SetProperty(c => c.UpdatedAt, message.CreatedAt), ct);
 
-                var members = await _db.ConversationMembers.AsTracking()
+                await _db.ConversationMembers
                     .Where(cm => cm.ConversationId == msg.conversation_id && cm.UserId != userId)
-                    .ToListAsync();
-
-                foreach (var member in members)
-                    member.UnreadCount++;
-
-                await _db.SaveChangesAsync();
+                    .ExecuteUpdateAsync(s => s.SetProperty(cm => cm.UnreadCount, cm => cm.UnreadCount + 1), ct);
 
                 // 7. Обновление кэша
                 _chatCache.UpdateLastMessage(msg.conversation_id, message, truncatedText);
@@ -441,17 +462,7 @@ namespace IDMChat.Hubs
                 // 8. Подтверждение отправителю
                 await Clients.Caller.SendAsync("message_confirmed", new { message_id = message.Id, temp_id = msg.temp_id });
 
-                var user = await _db.Users
-                    .Where(u => u.Id == userId)
-                    .Select(u => new
-                    {
-                        u.Id,
-                        u.DisplayName,
-                        u.AvatarUrl,
-                        u.CustomStatus, 
-                        u.LastSeenAt
-                    })
-                    .FirstOrDefaultAsync();
+                var sender = _userCache.GetUser(userId);
 
                 // 9. Рассылка остальным
                 var messageDto = new
@@ -462,96 +473,99 @@ namespace IDMChat.Hubs
                     created_at = message.CreatedAt,
                     sender = new { 
                         id = userId,
-                        display_name = user.DisplayName,
-                        avatar_url = user.AvatarUrl, 
+                        display_name = sender?.DisplayName ?? "-",
+                        avatar_url = _urlResolver.ResolveUrl(sender?.AvatarUrl), 
                         status = "online", 
                         is_online = true,
-                        custom_status = user.CustomStatus, 
-                        last_seen_at = user.LastSeenAt
+                        custom_status = sender?.CustomStatus, 
+                        last_seen_at = sender?.LastSeenAt
                     },
                     reply_to = replyToObj,
-                    attachments = attachments,
+                    attachments = attachments, 
+                    mentions = mentionsDto
                 };
 
                 await Clients.Group(msg.conversation_id.ToString()).SendAsync("message_new", new
                 {
                     conversation_id = msg.conversation_id,
                     message = messageDto
-                });
+                }, ct);
 
                 var lastMessagePreview = new LastMessageDto
                 {
                     id = message.Id,
-                    text = message.Text.Length > 100 ? message.Text.Substring(0, 100) + "..." : message.Text,
+                    text = truncatedText,
                     type = msg.type,
                     sender_id = userId, 
-                    sender_name = user.DisplayName,
+                    sender_name = sender.DisplayName ?? "-",
                     created_at = message.CreatedAt,
                     attachments = attachments
                 };
 
-
-                string convName = conversation.Name;
-                if (conversation.Type == ConversationType.direct)
-                {
-                    var user2 = await _db.Users
-                        .Where(u => u.Id == members.First().UserId)
-                        .Select(u => new
-                        {
-                            u.Id,
-                            u.DisplayName,
-                            u.AvatarUrl,
-                            u.CustomStatus
-                        })
-                        .FirstOrDefaultAsync();
-
-                    convName = user2.DisplayName;
-                }
-
-                var conversationUpdatedDto = new ConversationUpdatedDto()
-                {
-                    id = msg.conversation_id,
-                    type = conversation.Type.ToString().ToLower(),
-                    name = convName,
-                    avatar_url = conversation.AvatarUrl ?? "",
-                    last_message = lastMessagePreview,
-                    updated_at = message.CreatedAt
-                };
                 var onlineMembers = _userCache.GetOnlineMembers(chat.Members).ToList();
-                foreach (var memberId in onlineMembers)
-                {
-                    if (message.Conversation.Type == ConversationType.direct)
-                    {
-                        if (memberId != userId)
-                        {
-                            conversationUpdatedDto.name = user.DisplayName;
-                            conversationUpdatedDto.avatar_url = user.AvatarUrl;
-                            await Clients.User(memberId.ToString().ToLower()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
-                        }
-                        else
-                        {
-                            if (onlineMembers.Count > 1)
-                            {
-                                (conversationUpdatedDto.name, conversationUpdatedDto.avatar_url) = await GetUserDisplayNameAndAvatar(onlineMembers.FirstOrDefault(u => u != memberId));
-                                await Clients.User(memberId.ToString().ToLower()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        await Clients.User(memberId.ToString()).SendAsync("conversation_updated", conversationUpdatedDto, ct);
-                    }
 
-                    // Обновляем счетчик непрочитанных у получателя
-                    if (memberId != userId)
+                if (chat.Type == ConversationType.direct)
+                {
+                    // Для директ-чата имя собеседника определяем полностью в памяти
+                    var otherMemberId = chat.Members.FirstOrDefault(id => id != userId);
+                    var otherMember = _userCache.GetUser(otherMemberId);
+                    var otherMemberName = otherMember?.DisplayName ?? "-";
+                    var otherMemberAvatar = _urlResolver.ResolveUrl(otherMember?.AvatarUrl);
+
+                    // Конструктор для отправителя (он видит имя получателя)
+                    var updateForSender = new ConversationUpdatedDto
                     {
-                        var newUnreadCount = chat.GetUnreadCount(memberId);
-                        await Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount });
+                        id = msg.conversation_id,
+                        type = "direct",
+                        name = otherMemberName,
+                        avatar_url = otherMemberAvatar,
+                        last_message = lastMessagePreview,
+                        updated_at = message.CreatedAt
+                    };
+                    await Clients.Caller.SendAsync("conversation_updated", updateForSender, ct);
+
+                    // Рассылаем точечно (так как в директе всего 2 человека, это не создаст нагрузки)
+                    if (onlineMembers.Contains(otherMemberId))
+                    {
+                        // Конструктор для получателя (он видит имя отправителя)
+                        var updateForRecipient = new ConversationUpdatedDto
+                        {
+                            id = msg.conversation_id,
+                            type = "direct",
+                            name = sender.DisplayName ?? "-",
+                            avatar_url = _urlResolver.ResolveUrl(sender.AvatarUrl),
+                            last_message = lastMessagePreview,
+                            updated_at = message.CreatedAt
+                        };
+
+                        await Clients.User(otherMemberId.ToString().ToLower()).SendAsync("conversation_updated", updateForRecipient, ct);
                     }
+                }
+                else
+                {
+                    // Для групповых чатов объект обновления для всех ОДИНАКОВЫЙ.
+                    var groupUpdateDto = new ConversationUpdatedDto { 
+                        id = msg.conversation_id, 
+                        type = chat.Type.ToString().ToLower(), 
+                        name = chat.Name, 
+                        avatar_url = _urlResolver.ResolveUrl(chat.AvatarUrl) ?? "", 
+                        last_message = lastMessagePreview, 
+                        updated_at = message.CreatedAt 
+                    };
+
+                    var onlineUserStrings = onlineMembers.Select(id => id.ToString()).ToList(); 
+                    await Clients.Users(onlineUserStrings).SendAsync("conversation_updated", groupUpdateDto, ct);
                 }
 
                 onlineMembers = onlineMembers.Where(m => m != userId).ToList();
-                if (onlineMembers.Count > 0)
+                // Обновляем счетчик непрочитанных у получателя
+                foreach (var memberId in onlineMembers)
+                {
+                    var newUnreadCount = chat.GetUnreadCount(memberId);
+                    await Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount }, ct);
+                }
+
+                if (onlineMembers.Any())
                     await Clients.Caller.SendAsync("message_delivered", new
                     {
                         message_id = message.Id,
@@ -674,7 +688,7 @@ namespace IDMChat.Hubs
             if (!chat.IsMember(userId))
                 return; // тихо игнорируем
 
-            var displayName = _userCache.GetDisplayName(userId) ?? userId.ToString();
+            var displayName = _userCache.GetUser(userId).DisplayName ?? userId.ToString();
 
             await Clients.Group(data.conversation_id.ToString()).SendAsync("typing_start", new
             {

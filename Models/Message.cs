@@ -59,16 +59,17 @@ namespace IDMChat.Models
         //    set => KeyboardJson = JsonSerializer.Serialize(value);
         //}
 
+
         [ForeignKey(nameof(ReplyToMessageId))]
-        public virtual Message? ReplyToMessage { get; set; }
+        public Message? ReplyToMessage { get; set; }
 
-        [ForeignKey(nameof(ConversationId))]
-        public virtual Conversation Conversation { get; set; } = null!;
+        public Conversation Conversation { get; set; } = null!;
 
-        [ForeignKey(nameof(SenderId))]
-        public virtual User Sender { get; set; } = null!;
+        public User Sender { get; set; } = null!;
 
-        public virtual List<FileAttachment> FileAttachments { get; set; }
+        public List<FileAttachment> FileAttachments { get; set; }
+
+        public ICollection<MessageMention> Mentions { get; set; } = new List<MessageMention>();
     }
 
     public enum MessageType

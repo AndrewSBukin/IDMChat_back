@@ -1,4 +1,5 @@
 ﻿using Asp.Versioning;
+using IDMChat.DTO;
 using IDMChat.Middleware;
 using IDMChat.Models;
 using IDMChat.Utils;
@@ -92,27 +93,5 @@ namespace IDMChat.Controllers
                 theme = user.Theme ?? "system"
             });
         }
-    }
-
-    // Request DTO
-    public class UpdateSettingsRequest
-    {
-        public bool? notifications_enabled { get; set; }
-        public bool? sound_enabled { get; set; }
-
-        [MaxLength(10)]
-        public string? language { get; set; }
-
-        [RegularExpression("^(system|light|dark)$", ErrorMessage = "Theme must be 'system', 'light', or 'dark'")]
-        public string? theme { get; set; }
-    }
-
-    // Response DTO
-    public class UserSettingsResponse
-    {
-        public bool notifications_enabled { get; set; }
-        public bool sound_enabled { get; set; }
-        public string language { get; set; } = "ru";
-        public string theme { get; set; } = "system";
     }
 }

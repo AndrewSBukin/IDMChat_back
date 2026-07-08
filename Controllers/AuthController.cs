@@ -1,4 +1,5 @@
 ﻿using Asp.Versioning;
+using IDMChat.DTO;
 using IDMChat.Models;
 using IDMChat.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -41,7 +42,7 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new
             {
-                error = new
+                error = new ErrorDto()
                 {
                     code = "INVALID_CREDENTIALS",
                     message = "Неверный логин или пароль"
@@ -81,7 +82,7 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new
             {
-                error = new
+                error = new ErrorDto()
                 {
                     code = "INVALID_CREDENTIALS",
                     message = "Неверный логин или пароль"
@@ -138,7 +139,7 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new
             {
-                error = new
+                error = new ErrorDto()
                 {
                     code = "TOKEN_INVALID",
                     message = "Неверный или отсутствующий refresh token"
@@ -155,7 +156,7 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new
             {
-                error = new
+                error = new ErrorDto
                 {
                     code = "TOKEN_INVALID",
                     message = "Неверный refresh token"
@@ -168,7 +169,7 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new
             {
-                error = new
+                error = new ErrorDto
                 {
                     code = "TOKEN_REVOKED",
                     message = "Refresh token отозван"
@@ -181,7 +182,7 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new
             {
-                error = new
+                error = new ErrorDto
                 {
                     code = "TOKEN_EXPIRED",
                     message = "Refresh token истек, требуется повторная авторизация"
@@ -196,7 +197,7 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new
             {
-                error = new
+                error = new ErrorDto
                 {
                     code = "USER_INACTIVE",
                     message = "Пользователь неактивен"
@@ -204,13 +205,18 @@ public class AuthController : ControllerBase
             });
         }
 
+        user.LastSeenAt = DateTime.UtcNow;
+        _dbContext.Users.Update(user);
+
         // Создаем новый access token
         var userDto = new UserDto
         {
             id = user.Id,
             username = user.Username,
             display_name = user.DisplayName ?? user.Username,
-            avatar_url = user.AvatarUrl
+            avatar_url = user.AvatarUrl, 
+            custom_status = user.CustomStatus, 
+            last_seen_at = user.LastSeenAt, 
         };
 
         var accessToken = GenerateAccessToken(userDto);
@@ -259,20 +265,6 @@ public class AuthController : ControllerBase
     }
 
 
-    public class RefreshRequest
-    {
-        public string refresh_token { get; set; } = string.Empty;
-    }
-    
-    public class UserDto
-    {
-        public Guid id { get; set; }
-        public string username { get; set; } = string.Empty;
-        public string display_name { get; set; } = string.Empty;
-        public string? avatar_url { get; set; }
-        public bool is_online { get; set; }
-        public DateTime last_seen_at { get; set; }
-    }
 
     private string GenerateAccessToken(UserDto user)
     {
@@ -301,24 +293,6 @@ public class AuthController : ControllerBase
         return Convert.ToBase64String(Guid.NewGuid().ToByteArray());
     }
 
-    public class LoginRequest
-    {
-        public string Username { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-    }
-
-    public class LoginResultDto
-    {
-        public string access_token { get; set; }
-        public string refresh_token { get; set; }
-        public int expires_in { get; set; }
-        public UserDto user { get; set; }
-    }
-    public class RefreshResultDto
-    {
-        public string access_token { get; set; }
-        public int expires_in { get; set; }
-    }
 }
 
 

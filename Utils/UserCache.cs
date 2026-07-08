@@ -1,12 +1,21 @@
 ﻿using System.Collections.Concurrent;
+using System.Security.Cryptography;
 
 namespace IDMChat.Utils
 {
     public class UserCache
     {
+        public record CachedUser(
+            Guid Id, 
+            string DisplayName, 
+            string? AvatarUrl, 
+            string? CustomStatus, 
+            DateTime LastSeenAt
+        );
+
         private readonly ConcurrentDictionary<Guid, string> _connections = new();
         private readonly ConcurrentDictionary<Guid, bool> _onlineStatus = new();
-        private readonly ConcurrentDictionary<Guid, string> _displayNames = new();
+        private readonly ConcurrentDictionary<Guid, CachedUser> _userData = new();
 
         public void AddConnection(Guid userId, string connectionId)
         {
@@ -35,14 +44,28 @@ namespace IDMChat.Utils
             return userIds.Where(IsOnline).ToList();
         }
 
-        public void AddOrUpdateUser(Guid userId, string displayName)
+
+        public void InitializeAllUsers(IEnumerable<CachedUser> users)
         {
-            _displayNames[userId] = displayName;
+            _userData.Clear();
+            foreach (var user in users)
+            {
+                _userData[user.Id] = user;
+            }
+        }
+        public void AddOrUpdateUser(Guid userId, string displayName, string? avatarUrl, string? customStatus, DateTime lasSeenAt)
+        {
+            _userData[userId] = new CachedUser(userId, displayName, avatarUrl, customStatus, lasSeenAt);
         }
 
-        public string? GetDisplayName(Guid userId)
+        public CachedUser? GetUser(Guid userId)
         {
-            return _displayNames.GetValueOrDefault(userId);
+            return _userData.TryGetValue(userId, out var user) ? user : null;
+        }
+
+        public string GetDisplayName(Guid userId)
+        {
+            return _userData.TryGetValue(userId, out var user) ? user.DisplayName ?? "-" : "-";
         }
     }
 }

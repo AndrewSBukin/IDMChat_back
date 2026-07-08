@@ -1,5 +1,6 @@
 ﻿using Asp.Versioning;
 using BCrypt.Net;
+using IDMChat.DTO;
 using IDMChat.Middleware;
 using IDMChat.Models;
 using IDMChat.Utils;
@@ -31,18 +32,6 @@ public class UsersController : ControllerBase
         _userCache = userCache;
     }
 
-    public class UserDto
-    {
-        public Guid id { get; set; }
-        public string username { get; set; } = string.Empty;
-        public string display_name { get; set; } = string.Empty;
-        public string? avatar_url { get; set; }
-        public string? status { get; set; }
-        public string? custom_status { get; set; }
-        public bool is_online { get; set; }
-        public DateTime last_seen_at { get; set; }
-    }
-
 
     [HttpGet("")]
     public async Task<IActionResult> GetUsers([FromQuery] string search = "", [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
@@ -68,7 +57,7 @@ public class UsersController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(new { users, total = allusers.Count() });
+        return Ok(new UsersDto(){ users = users, total = allusers.Count() });
     }
 
     [HttpGet("{id}")]
