@@ -392,6 +392,36 @@ namespace IDMChat.Hubs
                 _db.Messages.Add(message);
                 await _db.SaveChangesAsync(ct); // message.Id заполняется
 
+                var linkRegex = new System.Text.RegularExpressions.Regex(
+                    @"https?://[^\s]+",
+                    System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                var linkMatches = linkRegex.Matches(message.Text);
+
+                // 2. Если ссылки найдены — пишем их в индексную таблицу
+                if (linkMatches.Count > 0)
+                {
+                    // Используем Distinct, чтобы если юзер прислал две одинаковые ссылки в одном сообщении, база не ругалась на PK
+                    var uniqueUrls = linkMatches.Cast<System.Text.RegularExpressions.Match>()
+                        .Select(m => m.Value)
+                        .Distinct()
+                        .ToList();
+
+                    foreach (var url in uniqueUrls)
+                    {
+                        _db.MessageLinks.Add(new MessageLink
+                        {
+                            MessageId = message.Id,
+                            ConversationId = message.ConversationId, // Берем из входящего запроса
+                            Url = url,
+                            CreatedAt = message.CreatedAt
+                        });
+                    }
+
+                    // Сохраняем пачкой. EF Core объединит эти инсерты в один легкий батч
+                    await _db.SaveChangesAsync(ct);
+                }
+
                 // 5. Обработка упоминаний (Mentions) — НАША НОВАЯ ФИЧА
                 var mentionsDto = new List<UserMention>();
                 if (msg.mentions != null && msg.mentions.Any())
@@ -411,6 +441,7 @@ namespace IDMChat.Hubs
 
                             mentionsDto.Add(new UserMention(m.user_id, m.display_name));
                         }
+                        await _db.SaveChangesAsync(ct);
                     }
                 }
 
@@ -425,6 +456,7 @@ namespace IDMChat.Hubs
                     foreach (var attachment in attachmentFiles)
                     {
                         attachment.MessageId = message.Id;
+                        attachment.ConversationId = message.ConversationId;
                     }
 
                     attachments = attachmentFiles

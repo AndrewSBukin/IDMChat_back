@@ -1156,6 +1156,56 @@ namespace IDMChat.Controllers
             message.Text = request.text;
             message.UpdatedAt = DateTime.UtcNow;
 
+            var linkRegex = new System.Text.RegularExpressions.Regex(
+                @"https?://[^\s]+",
+                System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            var newMatches = linkRegex.Matches(request.text);
+
+            // Собираем уникальные новые ссылки в быстрый HashSet
+            var newUrls = newMatches.Cast<System.Text.RegularExpressions.Match>()
+                .Select(m => m.Value)
+                .Distinct()
+                .ToHashSet();
+
+            // 2. Достаем текущие ссылки этого сообщения, которые УЖЕ лежат в базе
+            var currentUrlsList = await _db.MessageLinks
+                .Where(ml => ml.MessageId == messageId)
+                .Select(ml => ml.Url)
+                .ToListAsync(ct);
+            var currentUrls = currentUrlsList.ToHashSet();
+
+            // 3. Вычисляем разницу между старыми и новыми ссылками
+            // Ссылки, которые пользователь удалил из текста
+            var urlsToDelete = currentUrls.Where(url => !newUrls.Contains(url)).ToList();
+
+            // Ссылки, которые пользователь только что добавил в текст
+            var urlsToAdd = newUrls.Where(url => !currentUrls.Contains(url)).ToList();
+
+            // 4. Применяем точечные изменения в БД (Если разницы нет — этот блок просто пропустится)
+            if (urlsToDelete.Any())
+            {
+                var dbLinksToDelete = await _db.MessageLinks
+                    .Where(ml => ml.MessageId == messageId && urlsToDelete.Contains(ml.Url))
+                    .ToListAsync(ct);
+
+                _db.MessageLinks.RemoveRange(dbLinksToDelete);
+            }
+
+            if (urlsToAdd.Any())
+            {
+                foreach (var url in urlsToAdd)
+                {
+                    _db.MessageLinks.Add(new MessageLink
+                    {
+                        MessageId = messageId,
+                        ConversationId = id, // Guid ID чата из параметров метода EditMessage
+                        Url = url,
+                        CreatedAt = message.UpdatedAt ?? DateTime.UtcNow // Привязываем к дате изменения
+                    });
+                }
+            }
+
             var currentMentionsDto = new List<UserMention>();
             var chat = await _chatCache.GetConversationAsync(id);
 
@@ -1627,25 +1677,40 @@ namespace IDMChat.Controllers
         [HttpGet("{id}/links")]
         public async Task<IActionResult> GetLinks(Guid id, [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
         {
+            limit = Math.Min(limit, 100);
             var userId = HttpContext.GetCurrentUserId();
 
-            // Извлекаем ссылки из текста сообщений
-            var messages = await _db.Messages
-                .Where(m => m.ConversationId == id && m.Text.Contains("http://") || m.Text.Contains("https://"))
-                .OrderByDescending(m => m.CreatedAt)
+            var chat = await _chatCache.GetConversationAsync(id);
+            if (chat == null || !chat.IsMember(userId))
+            {
+                return StatusCode(403, new { error = new { code = "FORBIDDEN", message = "Нет доступа к чату" } });
+            }
+
+            var linksData = await _db.MessageLinks
+                .Where(ml => ml.ConversationId == id)
+                .OrderByDescending(ml => ml.CreatedAt)
                 .Skip(offset)
                 .Take(limit)
-                .Select(m => new LinkResponse
+                .Select(ml => new
                 {
-                    MessageId = m.Id,
-                    Url = ExtractFirstUrl(m.Text),  // метод для извлечения
-                    SenderId = m.SenderId,
-                    SenderName = m.Sender.DisplayName,
-                    CreatedAt = m.CreatedAt
+                    ml.MessageId,
+                    ml.Url,
+                    // Чтобы узнать, кто отправил ссылку, смотрим на автора исходного сообщения
+                    SenderId = ml.Message.SenderId,
+                    ml.CreatedAt
                 })
                 .ToListAsync(ct);
 
-            return Ok(messages);
+            var links = linksData.Select(ml => new LinkResponse
+            {
+                MessageId = ml.MessageId,
+                Url = ml.Url, // Ссылка уже лежит в готовом чистом виде
+                SenderId = ml.SenderId,
+                SenderName = _userCache.GetDisplayName(ml.SenderId), // Мгновенно из памяти за O(1)
+                CreatedAt = ml.CreatedAt
+            }).ToList();
+
+            return Ok(links);
         }
 
         /// <summary>
