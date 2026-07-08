@@ -98,7 +98,11 @@ namespace IDMChat
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowClient",
-                    policy => policy.WithOrigins("http://localhost:3000")
+                    policy => policy.WithOrigins(
+                        "http://localhost:3000",
+                        "http://localhost:55975",
+                        "https://idmbb.ru:8091",
+                        "http://idmbb.ru:8090")
                                     .AllowAnyMethod()
                                     .AllowAnyHeader()
                                     .AllowCredentials());

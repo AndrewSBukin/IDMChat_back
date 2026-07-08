@@ -85,7 +85,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UpdatedAt");
 
-                    b.ToTable("Conversations");
+                    b.ToTable("Conversations", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.ConversationMember", b =>
@@ -120,7 +120,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId", "IsPinned", "ConversationId");
 
-                    b.ToTable("ConversationMembers");
+                    b.ToTable("ConversationMembers", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.FileAttachment", b =>
@@ -175,7 +175,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("FileAttachments");
+                    b.ToTable("FileAttachments", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.Message", b =>
@@ -238,7 +238,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("ConversationId", "Id");
 
-                    b.ToTable("Messages");
+                    b.ToTable("Messages", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.MessageLink", b =>
@@ -257,7 +257,7 @@ namespace IDMChat.Migrations
 
                     b.HasKey("MessageId", "Url");
 
-                    b.ToTable("MessageLinks");
+                    b.ToTable("MessageLinks", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.MessageMention", b =>
@@ -276,7 +276,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("MessageMentions");
+                    b.ToTable("MessageMentions", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.MessageReadReceipt", b =>
@@ -294,7 +294,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("MessageReadReceipts");
+                    b.ToTable("MessageReadReceipts", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.RefreshToken", b =>
@@ -333,7 +333,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("RefreshTokens");
+                    b.ToTable("RefreshTokens", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.User", b =>
@@ -430,7 +430,7 @@ namespace IDMChat.Migrations
 
                     b.HasIndex("idm");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("IDMChat.Models.Conversation", b =>
