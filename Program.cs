@@ -231,6 +231,7 @@ namespace IDMChat
             });
 
             app.UseHttpsRedirection();
+            app.UseCors("AllowClient");
 
             app.UseAuthentication();
             app.UseMiddleware<ActiveUserMiddleware>();
@@ -247,7 +248,6 @@ namespace IDMChat
                 }
             });
 
-            app.UseCors("AllowClient");
 
             app.MapControllers();
             app.MapHub<ChatHub>("/chatHub");
