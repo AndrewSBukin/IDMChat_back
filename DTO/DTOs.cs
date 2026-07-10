@@ -80,11 +80,26 @@ namespace IDMChat.DTO
 
     public record UnreadCountErrorDto(int unread_count, string error);
 
-
+    #region Medialinks in conversations
+    public record MediaDto
+    {
+        public List<MediaInfoResponse> items { get; set; }
+        public int total { get; set; }
+    }
     public record FilesDto
     {
-        public List<FileInfoResponse> files { get; internal set; }
-        public int total { get; internal set; }
+        public List<FileInfoResponse> items { get; set; }
+        public int total { get; set; }
+    }
+    public record VoiceMessagesDto
+    {
+        public List<VoiceMessageResponse> items { get; set; }
+        public int total { get; set; }
+    }
+    public record LinksDto
+    {
+        public List<LinkResponse> items { get; set; }
+        public int total { get; set; }
     }
 
     public record UploadAvatarResult
@@ -92,41 +107,44 @@ namespace IDMChat.DTO
         public string? avatar_url { get; internal set; }
     }
 
-    public class FileInfoResponse
+    public class CommonItemResponce
     {
-        public Guid Id { get; set; }
-        public string FileName { get; set; } = string.Empty;
-        public long FileSize { get; set; }
-        public string MimeType { get; set; } = string.Empty;
-        public Guid SenderId { get; set; }
-        public string SenderName { get; set; } = string.Empty;
-        public DateTime CreatedAt { get; set; }
-        public string Url { get; set; } = string.Empty;
-        public string? ThumbnailUrl { get; set; }
+        public long message_id { get; set; }
+        public Guid sender_id { get; set; }
+        public string sender_name { get; set; } = string.Empty;
+        public DateTime created_at { get; set; }
+        public string url { get; set; } = string.Empty;
+
+    }
+    public class MediaInfoResponse: CommonItemResponce
+    {
+        public Guid id { get; set; }
+        public string type { get; set; } = string.Empty; // "image" или "video"
+        public int? duration { get; set; }
+        public string? thumbnail_url { get; set; }
     }
 
-    public class VoiceMessageResponse
+    public class FileInfoResponse: CommonItemResponce
     {
-        public Guid Id { get; set; }
-        public long MessageId { get; set; }
-        public Guid SenderId { get; set; }
-        public string SenderName { get; set; } = string.Empty;
-        public int Duration { get; set; }  // длительность в секундах
-        public DateTime CreatedAt { get; set; }
-        public string Url { get; set; } = string.Empty;
+        public Guid id { get; set; }
+        public string file_name { get; set; } = string.Empty;
+        public long file_size { get; set; }
+        public string mime_type { get; set; } = string.Empty;
     }
 
-    public class LinkResponse
+    public class VoiceMessageResponse: CommonItemResponce
     {
-        public long MessageId { get; set; }
-        public string Url { get; set; } = string.Empty;
-        public string? Title { get; set; }  // можно позже добавить, вытаскивая <title> из HTML
-        public string? Description { get; set; }
-        public string? ImageUrl { get; set; }
-        public Guid SenderId { get; set; }
-        public string SenderName { get; set; } = string.Empty;
-        public DateTime CreatedAt { get; set; }
+        public Guid id { get; set; }
+        public int duration { get; set; }  // длительность в секундах
     }
+
+    public class LinkResponse: CommonItemResponce
+    {
+        //public string? title { get; set; }  // можно позже добавить, вытаскивая <title> из HTML
+        //public string? description { get; set; }
+        //public string? image_url { get; set; }
+    }
+    #endregion
 
     public class MarkAsReadRequest
     {

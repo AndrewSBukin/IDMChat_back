@@ -470,6 +470,7 @@ namespace IDMChat.Hubs
                             thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath)
                         })
                     .ToList();
+                    await _db.SaveChangesAsync(ct);
                 }
 
                 var truncatedText = (msg.text ?? string.Empty).Length > 100 ? msg.text[..100] + "..." : (msg.text ?? string.Empty);

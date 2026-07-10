@@ -279,16 +279,20 @@ function send1() {
             <button onclick="typing(0)">StopTyping</button>
             <div class="field-group">
                 <span class="field-group-title">New message</span><br />
-                <select id="type2" name="type2">
-                    <option value="image" selected>image</option>
-                    <option value="video">video</option>
-                </select><input id="media" type="file" /><button onclick="upload()">Upload</button><input id="mediaid" type="text" /><br />
+                                                                  <select id="type2" name="type2">
+                                                                      <option value="image" selected>image</option>
+                                                                      <option value="video">video</option>
+                                                                      <option value="voice">voice</option>
+                                                                      <option value="file">file</option>
+                                                                  </select><input id="media" type="file" /><button onclick="upload()">Upload</button><input id="mediaid" type="text" /><br />
                 <label for="text1">Text</label><input id="text1" type="text" /><br />
                 <label for="type1">Type</label>
                 <select id="type1" name="type1">
                     <option value="text" selected>text</option>
                     <option value="image">image</option>
                     <option value="video">video</option>
+                    <option value="voice">voice</option>
+                    <option value="file">file</option>
                 </select><br />
                 <label for="attach1">Attachments</label><input id="attach1" type="text" value="[]" /><br />
                 <label for="mention1">Mentions</label><input id="mention1" type="text" value="[]" /><br />

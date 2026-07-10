@@ -20,6 +20,7 @@ using System.Security.Claims;
 using System.Text.RegularExpressions;
 using static IDMChat.Controllers.ConversationsController;
 using static IDMChat.Controllers.FilesController;
+using static System.Net.WebRequestMethods;
 
 namespace IDMChat.Controllers
 {
@@ -1620,58 +1621,150 @@ namespace IDMChat.Controllers
         #endregion
 
         #region Media
+        [HttpGet("{id}/media")]
+        public async Task<IActionResult> GetMedia(Guid id, [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
+        {
+            limit = Math.Min(limit, 100); // Защита от перегрузки (Max 100)
+            var userId = HttpContext.GetCurrentUserId();
+
+            // 1. Проверка прав доступа по быстрому кэшу чатов в памяти (O(1))
+            var chat = await _chatCache.GetConversationAsync(id);
+            if (chat == null || !chat.IsMember(userId))
+            {
+                return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник этого чата" } });
+            }
+
+            // 2. Извлекаем из базы строго плоские данные
+            var allowedTypes = new[] { FileType.Image, FileType.Video };
+
+            var dbMedia = await _db.FileAttachments
+                .Where(f => f.ConversationId == id && allowedTypes.Contains(f.Type))
+                .OrderByDescending(f => f.CreatedAt)
+                .Skip(offset)
+                .Take(limit)
+                .Select(f => new
+                {
+                    f.Id,
+                    MessageId = f.MessageId ?? 0,
+                    f.Type,
+                    f.UserId,
+                    Duration = f.Duration ?? 0,
+                    f.CreatedAt,
+                    f.StoragePath,
+                    f.ThumbnailPath
+                })
+                .ToListAsync(ct);
+
+            var mediaList = dbMedia.Select(m => new MediaInfoResponse
+            {
+                id = m.Id,
+                message_id = m.MessageId,
+                sender_id = m.UserId,
+                sender_name = _userCache.GetDisplayName(m.UserId),
+                type = m.Type.ToString().ToLower(),
+                duration = m.Type == FileType.Video ? m.Duration : null,
+                created_at = m.CreatedAt,
+                url = _urlResolver.ResolveUrl(m.StoragePath) ?? "",
+                thumbnail_url = _urlResolver.ResolveUrl(m.ThumbnailPath)
+            }).ToList();
+
+            var total = await _db.FileAttachments.CountAsync(f => f.ConversationId == id && allowedTypes.Contains(f.Type), ct);
+
+            return Ok(new MediaDto { items = mediaList, total = total });
+        }
+
         [HttpGet("{id}/files")]
         public async Task<IActionResult> GetFiles(Guid id, [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
         {
+            limit = Math.Min(limit, 100);
             var userId = HttpContext.GetCurrentUserId();
 
-            var files = await _db.FileAttachments
+            var chat = await _chatCache.GetConversationAsync(id);
+            if (chat == null || !chat.IsMember(userId))
+            {
+                return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник этого чата" } });
+            }
+
+            var filesData = await _db.FileAttachments
                 .Where(f => f.ConversationId == id && f.Type == FileType.File)
                 .OrderByDescending(f => f.CreatedAt)
                 .Skip(offset)
                 .Take(limit)
-                .Select(f => new FileInfoResponse
+                .Select(f => new
                 {
-                    Id = f.Id,
-                    FileName = f.FileName,
-                    FileSize = f.FileSize,
-                    MimeType = f.MimeType,
-                    SenderId = f.UserId,
-                    SenderName = f.User.DisplayName,
-                    CreatedAt = f.CreatedAt,
-                    Url = $"/api/files/{f.StoragePath}"
+                    f.Id, 
+                    f.MessageId,
+                    f.FileName,
+                    f.FileSize,
+                    f.MimeType,
+                    f.UserId,
+                    f.CreatedAt,
+                    f.StoragePath
                 })
                 .ToListAsync(ct);
+
+            var files = filesData.Select(f => new FileInfoResponse
+            {
+                id = f.Id, 
+                message_id = f.MessageId ?? 0,
+                file_name = f.FileName,
+                file_size = f.FileSize,
+                mime_type = f.MimeType,
+                sender_id = f.UserId,
+                sender_name = _userCache.GetDisplayName(f.UserId),
+                created_at = f.CreatedAt,
+                url = _urlResolver.ResolveUrl(f.StoragePath) ?? ""
+            }).ToList();
 
             var total = await _db.FileAttachments
                 .CountAsync(f => f.ConversationId == id && f.Type == FileType.File, ct);
 
-            return Ok(new FilesDto { files = files, total = total });
+            return Ok(new FilesDto { items = files, total = total });
         }
 
         [HttpGet("{id}/voice")]
         public async Task<IActionResult> GetVoiceMessages(Guid id, [FromQuery] int limit = 50, [FromQuery] int offset = 0, CancellationToken ct = default)
         {
+            limit = Math.Min(limit, 100);
             var userId = HttpContext.GetCurrentUserId();
 
-            var voiceMessages = await _db.FileAttachments
+            var chat = await _chatCache.GetConversationAsync(id);
+            if (chat == null || !chat.IsMember(userId))
+            {
+                return NotFound(new { error = new { code = "NOT_MEMBER", message = "Вы не участник этого чата" } });
+            }
+
+            var dbVoiceMessages = await _db.FileAttachments
                 .Where(f => f.ConversationId == id && f.Type == FileType.Voice)
                 .OrderByDescending(f => f.CreatedAt)
                 .Skip(offset)
                 .Take(limit)
-                .Select(f => new VoiceMessageResponse
+                .Select(f => new
                 {
-                    Id = f.Id,
+                    f.Id,
                     MessageId = f.MessageId ?? 0,
-                    SenderId = f.UserId,
-                    SenderName = f.User.DisplayName,
-                    Duration = f.Duration ?? 0, 
-                    CreatedAt = f.CreatedAt,
-                    Url = $"/api/files/{f.StoragePath}"
+                    f.UserId,
+                    Duration = f.Duration ?? 0,
+                    f.CreatedAt,
+                    f.StoragePath
                 })
                 .ToListAsync(ct);
 
-            return Ok(voiceMessages);
+            var voiceMessages = dbVoiceMessages.Select(v => new VoiceMessageResponse
+            {
+                id = v.Id,
+                message_id = v.MessageId,
+                sender_id = v.UserId,
+                sender_name = _userCache.GetDisplayName(v.UserId), // Мгновенно и безопасно из памяти
+                duration = v.Duration,
+                created_at = v.CreatedAt,
+                url = _urlResolver.ResolveUrl(v.StoragePath) ?? "" // Собираем абсолютный URL в памяти C#
+            }).ToList();
+
+            var total = await _db.FileAttachments
+                .CountAsync(f => f.ConversationId == id && f.Type == FileType.Voice, ct);
+
+            return Ok(new VoiceMessagesDto { items = voiceMessages, total = total });
         }
 
         [HttpGet("{id}/links")]
@@ -1703,14 +1796,17 @@ namespace IDMChat.Controllers
 
             var links = linksData.Select(ml => new LinkResponse
             {
-                MessageId = ml.MessageId,
-                Url = ml.Url, // Ссылка уже лежит в готовом чистом виде
-                SenderId = ml.SenderId,
-                SenderName = _userCache.GetDisplayName(ml.SenderId), // Мгновенно из памяти за O(1)
-                CreatedAt = ml.CreatedAt
+                message_id = ml.MessageId,
+                url = ml.Url, // Ссылка уже лежит в готовом чистом виде
+                sender_id = ml.SenderId,
+                sender_name = _userCache.GetDisplayName(ml.SenderId), // Мгновенно из памяти за O(1)
+                created_at = ml.CreatedAt
             }).ToList();
 
-            return Ok(links);
+            var total = await _db.MessageLinks
+                .CountAsync(f => f.ConversationId == id, ct);
+
+            return Ok(new LinksDto { items = links, total = total });
         }
 
         /// <summary>
