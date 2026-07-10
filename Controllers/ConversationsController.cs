@@ -440,7 +440,7 @@ namespace IDMChat.Controllers
                 name = conversation.Name,
                 avatar_url = conversation.AvatarUrl,
                 last_message = lastMessagePreview,
-                updated_at = message.UpdatedAt.Value
+                updated_at = message.UpdatedAt
             };
             return conversationUpdatedDto;
         }

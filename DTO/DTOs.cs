@@ -315,7 +315,7 @@ namespace IDMChat.DTO
         public string type { get; internal set; }
         public string? name { get; internal set; }
         public string? avatar_url { get; internal set; }
-        public DateTime updated_at { get; internal set; }
+        public DateTime? updated_at { get; internal set; }
         public LastMessageDto? last_message { get; internal set; }
     }
     public class ReplyPreviewDto
