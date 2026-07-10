@@ -146,6 +146,12 @@ namespace IDMChat.DTO
     }
     #endregion
 
+
+    // Firebase (Соблюдаем snake_case фронтенда)
+    public record RegisterTokenRequest(string token, string platform, string deviceId);
+    public record DeleteTokenRequest(string deviceId);
+
+
     public class MarkAsReadRequest
     {
         public long? last_read_message_id { get; set; }

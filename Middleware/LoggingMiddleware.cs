@@ -54,22 +54,25 @@ namespace IDMChat.Middleware
                     userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                 }
 
-                // 6. Enqueue structured log (non‑blocking)
-                _logQueue.Enqueue(new RequestResponseLog
-                {
-                    RequestId = context.TraceIdentifier,
-                    Method = context.Request.Method,
-                    Path = context.Request.Path,
-                    QueryString = context.Request.QueryString.ToString(),
-                    RequestBody = requestBody,      // truncated/masked
-                    ResponseStatusCode = context.Response.StatusCode,
-                    ResponseBody = responseBody,    // truncated/masked
-                    DurationMs = stopwatch.ElapsedMilliseconds,
-                    Timestamp = DateTime.UtcNow,
-                    UserId = context.User?.FindFirst("sub")?.Value,
-                    UserIdClaim = userIdClaim,
-                    ClientIp = context.Connection.RemoteIpAddress?.ToString()
-                });
+                var userId = context.User?.FindFirst("sub")?.Value ?? context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+                // Создаем структурированное событие лога для NLog
+                var logEvent = new NLog.LogEventInfo(NLog.LogLevel.Info, typeof(LoggingMiddleware).FullName, $"API: {context.Request.Method} {context.Request.Path}");
+                logEvent.Properties["RequestId"] = context.TraceIdentifier;
+                logEvent.Properties["Method"] = context.Request.Method;
+                logEvent.Properties["Path"] = context.Request.Path;
+                logEvent.Properties["QueryString"] = context.Request.QueryString.ToString();
+                logEvent.Properties["RequestBody"] = requestBody;
+                logEvent.Properties["ResponseStatusCode"] = context.Response.StatusCode;
+                logEvent.Properties["ResponseBody"] = responseBody;
+                logEvent.Properties["DurationMs"] = stopwatch.ElapsedMilliseconds;
+                logEvent.Properties["UserId"] = userId ?? "-";
+                logEvent.Properties["UserIdClaim"] = userIdClaim ?? "-";
+                logEvent.Properties["ClientIp"] = clientIp;
+
+                NLog.LogManager.GetLogger(logEvent.LoggerName).Log(logEvent);
+                //NLog.LogManager.GetLogger(_logger.Name).Log(logEvent);
 
                 // 7. Copy captured response back to original stream
                 responseMemoryStream.Seek(0, SeekOrigin.Begin);

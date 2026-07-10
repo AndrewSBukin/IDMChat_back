@@ -18,6 +18,7 @@ namespace IDMChat.Models
         public DbSet<MessageMention> MessageMentions { get; set; }
         public DbSet<MessageLink> MessageLinks { get; set; }
         public DbSet<FileAttachment> FileAttachments { get; set; }
+        public DbSet<DeviceToken> DeviceTokens { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

@@ -1,6 +1,8 @@
 
 using Asp.Versioning;
 using FFMpegCore.Enums;
+using FirebaseAdmin;
+using Google.Apis.Auth.OAuth2;
 using IDMChat.Domain;
 using IDMChat.Hubs;
 using IDMChat.Middleware;
@@ -166,6 +168,25 @@ namespace IDMChat
             builder.Logging.AddDebug(); // <-- ВАЖНО для вывода в VS
             builder.Logging.AddEventSourceLogger();
             builder.Host.UseNLog();
+
+            // Firebase
+            var env = builder.Environment;
+            var firebaseKeyPath = Path.Combine(Directory.GetCurrentDirectory(), "idm-messenger-firebase-adminsdk-fbsvc-6af49cdc4a.json");
+
+            if (File.Exists(firebaseKeyPath))
+            {
+                using var stream = new FileStream(firebaseKeyPath, FileMode.Open, FileAccess.Read);
+                FirebaseApp.Create(new AppOptions()
+                {
+                    Credential = GoogleCredential.FromStream(stream)
+                });
+            }
+            else
+            {
+                // Логгер или предупреждение, чтобы локально у вас не падало без этого файла
+                Console.WriteLine("Критическая ошибка: Файл ключа Firebase не найден!");
+            }
+            builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
 
             var app = builder.Build();
 

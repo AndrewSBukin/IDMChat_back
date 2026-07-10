@@ -607,6 +607,22 @@ namespace IDMChat.Hubs
                     });
 
                 _logger.LogDebug("Message {MessageId} sent to conversation {ConversationId} by {UserId}", message.Id, msg.conversation_id, userId);
+
+                // PUSH
+                // Вытаскиваем ID тех, кого реально упомянули (мы собирали их в блоке Mentions)
+                var validMentionIds = msg.mentions != null
+                    ? msg.mentions.Where(m => chat.Members.Contains(m.user_id)).Select(m => m.user_id).ToList()
+                    : new List<Guid>();
+
+                // Скидываем тяжелую задачу отправки пушей в фоновую очередь, полностью освобождая основной поток чата
+                //_backgroundQueue.QueueBackgroundWorkItem(async token =>
+                //{
+                //    using var scope = _serviceProvider.CreateScope();
+                //    var pushService = scope.ServiceProvider.GetRequiredService<IPushNotificationService>();
+
+                //    // Передаем сущность сообщения, список меншенов и сырой тип ("text"/"image"...)
+                //    await pushService.SendNewMessagePushAsync(message, validMentionIds, msg.type);
+                //});
             }
             catch (HubException)
             {
