@@ -375,28 +375,10 @@ namespace IDMChat.Controllers
             //return StatusCode(201, response);
         }
 
-        async Task<string> GetConversationName(Conversation conversation, Guid userId)
-        {
-            string convName = conversation.Name;
-            if (conversation.Type == ConversationType.direct)
-            {
-                var user2 = await _db.Users
-                    .Where(u => u.Id == conversation.Members.First(x => x.UserId != userId).UserId)
-                    .Select(u => u.DisplayName)
-                    .FirstOrDefaultAsync();
-
-                convName = user2??"Имя не найдено";
-            }
-            return convName;
-        }
-
         async Task<(string, string)> GetUserDisplayNameAndAvatar(Guid userId)
         {
-            var user2 = await _db.Users
-                .Where(u => u.Id == userId)
-                .Select(u => new { u.DisplayName , u.AvatarUrl})
-                .FirstOrDefaultAsync();
-            return (user2.DisplayName, user2.AvatarUrl);
+            var user = _userCache.GetUser(userId);
+            return (user.DisplayName, _urlResolver.ResolveUrl(user.AvatarUrl));
         }
         async Task<ConversationUpdatedDto> BuildConversationUpdatedDto(Conversation conversation, CancellationToken ct = default)
         {
