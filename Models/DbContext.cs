@@ -19,6 +19,7 @@ namespace IDMChat.Models
         public DbSet<MessageLink> MessageLinks { get; set; }
         public DbSet<FileAttachment> FileAttachments { get; set; }
         public DbSet<DeviceToken> DeviceTokens { get; set; }
+        public DbSet<MessageReaction> MessageReactions { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -28,6 +29,10 @@ namespace IDMChat.Models
                 .HasForeignKey(f => f.UserId)
                 .OnDelete(DeleteBehavior.NoAction);
             base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<MessageReaction>()
+                .Property(r => r.Emoji)
+                .UseCollation("Latin1_General_BIN2");
         }
     }
 }

@@ -4,6 +4,7 @@ using IDMChat.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IDMChat.Migrations
 {
     [DbContext(typeof(ChatDbContext))]
-    partial class ChatDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260713211533_V16-Reactions")]
+    partial class V16Reactions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -324,8 +327,7 @@ namespace IDMChat.Migrations
 
                     b.Property<string>("Emoji")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)")
-                        .UseCollation("Latin1_General_BIN2");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<long>("MessageId")
                         .HasColumnType("bigint");
@@ -596,7 +598,7 @@ namespace IDMChat.Migrations
             modelBuilder.Entity("IDMChat.Models.MessageReaction", b =>
                 {
                     b.HasOne("IDMChat.Models.Message", "Message")
-                        .WithMany("Reactions")
+                        .WithMany()
                         .HasForeignKey("MessageId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -639,8 +641,6 @@ namespace IDMChat.Migrations
                     b.Navigation("FileAttachments");
 
                     b.Navigation("Mentions");
-
-                    b.Navigation("Reactions");
                 });
 
             modelBuilder.Entity("IDMChat.Models.User", b =>

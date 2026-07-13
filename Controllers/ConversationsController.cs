@@ -921,7 +921,18 @@ namespace IDMChat.Controllers
                     m.UpdatedAt,
                     m.IsDeleted,
                     m.CreatedAt,
-                    m.ReplyToMessageId
+                    m.ReplyToMessageId, 
+                    m.IsForwarded, 
+                    m.OriginalSenderId,
+                    reactions = m.Reactions
+                        .GroupBy(r => r.Emoji)
+                        .Select(g => new ReactionGroupDto
+                        {
+                            emoji = g.Key,
+                            count = g.Count(),
+                            userIds = g.Select(r => r.UserId).ToList(),
+                            isMine = g.Any(r => r.UserId == userId)
+                        }).ToList()
                 })
                 .ToListAsync(ct);
 
@@ -1070,7 +1081,15 @@ namespace IDMChat.Controllers
                 read_by = needFullReadBy && readByMap != null && readByMap.ContainsKey(m.Id)
                     ? readByMap[m.Id]
                     : null,
-                mentions = mentionsMap.GetValueOrDefault(m.Id) ?? new List<UserMention>()
+                mentions = mentionsMap.GetValueOrDefault(m.Id) ?? new List<UserMention>(), 
+                is_forwarded = m.IsForwarded, 
+                forward_from = m.OriginalSenderId.HasValue ? 
+                    new UserBriefDto() { 
+                        id = m.OriginalSenderId.Value, 
+                        display_name = _userCache.GetDisplayName(m.OriginalSenderId.Value), 
+                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl) }
+                    : null, 
+                reactions = m.reactions
             }).ToList();
 
             // Для режима before — возвращаем в правильном порядке (от старых к новым)
@@ -1799,6 +1818,122 @@ namespace IDMChat.Controllers
                 conversation_id = conversationId,
                 messages = messageDtos
             });
+        }
+        #endregion
+
+        #region Reactions
+        [HttpPost("{conversationId}/messages/{messageId}/reactions")]
+        [Authorize]
+        public async Task<IActionResult> AddReaction(Guid conversationId, long messageId, [FromBody] AddReactionRequestDto dto)
+        {
+            var currentUserId = HttpContext.GetCurrentUserId();
+
+            // Валидация эмодзи
+            if (string.IsNullOrWhiteSpace(dto.emoji) || dto.emoji.Length > 8)
+                return BadRequest("INVALID_EMOJI");
+
+            // Проверка прав на чат
+            var cachedChat = await _chatCache.GetConversationAsync(conversationId);
+            if (cachedChat == null || !cachedChat.Members.Contains(currentUserId))
+                return Forbid();
+
+            // Проверяем, нет ли уже такой реакции (Защита от 409 Conflict)
+            var exists = await _db.MessageReactions
+                .AnyAsync(r => r.MessageId == messageId && r.UserId == currentUserId && r.Emoji == dto.emoji);
+
+            if (exists)
+                return Conflict("Реакция уже поставлена этим пользователем.");
+
+            // Сохраняем в БД
+            var reaction = new MessageReaction
+            {
+                MessageId = messageId,
+                UserId = currentUserId,
+                Emoji = dto.emoji
+            };
+            _db.MessageReactions.Add(reaction);
+            await _db.SaveChangesAsync();
+
+            // Считаем общее количество таких эмодзи на сообщении
+            int currentCount = await _db.MessageReactions
+                .CountAsync(r => r.MessageId == messageId && r.Emoji == dto.emoji);
+
+            var response = new ReactionAddedResponseDto(dto.emoji, currentUserId, currentCount);
+
+            // Рассылаем событие ReactionAdded через SignalR (Пункт 10.5)
+            await _hubContext.Clients.Group(conversationId.ToString()).SendAsync("ReactionAdded", new
+            {
+                conversationId = conversationId,
+                messageId = messageId,
+                reaction = response
+            });
+
+            return Ok(response);
+        }
+
+        // 10.2 Убрать реакцию
+        [HttpDelete("{conversationId}/messages/{messageId}/reactions/{emoji}")]
+        [Authorize]
+        public async Task<IActionResult> RemoveReaction(Guid conversationId, long messageId, string emoji)
+        {
+            var currentUserId = HttpContext.GetCurrentUserId();
+
+            // Декодируем эмодзи, так как фронт пришлет его URL-encoded (например, %F0%9F%91%8D)
+            string decodedEmoji = Uri.UnescapeDataString(emoji);
+
+            // Проверка прав на чат
+            var cachedChat = await _chatCache.GetConversationAsync(conversationId);
+            if (cachedChat == null || !cachedChat.Members.Contains(currentUserId))
+                return Forbid();
+
+            // Ищем реакцию
+            var reaction = await _db.MessageReactions
+                .FirstOrDefaultAsync(r => r.MessageId == messageId && r.UserId == currentUserId && r.Emoji == decodedEmoji);
+
+            if (reaction == null)
+                return NotFound(); // 404 по ТЗ
+
+            _db.MessageReactions.Remove(reaction);
+            await _db.SaveChangesAsync();
+
+            // Рассылаем событие ReactionRemoved через SignalR (Пункт 10.5)
+            await _hubContext.Clients.Group(conversationId.ToString()).SendAsync("ReactionRemoved", new
+            {
+                conversationId = conversationId,
+                messageId = messageId,
+                emoji = decodedEmoji,
+                userId = currentUserId
+            });
+
+            return NoContent(); // 204 по ТЗ
+        }
+
+        // 10.3 Получить список реакций на сообщение
+        [HttpGet("{conversationId}/messages/{messageId}/reactions")]
+        [Authorize]
+        public async Task<IActionResult> GetReactions(Guid conversationId, long messageId)
+        {
+            var currentUserId = HttpContext.GetCurrentUserId();
+
+            // Проверка прав на чат
+            var cachedChat = await _chatCache.GetConversationAsync(conversationId);
+            if (cachedChat == null || !cachedChat.Members.Contains(currentUserId))
+                return Forbid();
+
+            // Вытаскиваем все реакции и группируем их на стороне БД
+            var reactionsGrouped = await _db.MessageReactions
+                .Where(r => r.MessageId == messageId)
+                .GroupBy(r => r.Emoji)
+                .Select(g => new ReactionGroupDto
+                {
+                    emoji = g.Key,
+                    count = g.Count(),
+                    userIds = g.Select(r => r.UserId).ToList(),
+                    isMine = g.Any(r => r.UserId == currentUserId)
+                })
+                .ToListAsync();
+
+            return Ok(reactionsGrouped);
         }
         #endregion
 

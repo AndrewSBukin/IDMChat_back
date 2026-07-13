@@ -1,280 +1,307 @@
 <html>
-    <head>
-        <style>
-            .field-group {
-                position: relative;
-                border: 1px solid #ccc;
-                padding: 20px;
-                margin-top: 10px;
-                border-radius: 4px;
+<head>
+    <meta charset="utf-8">
+    <style>
+        .field-group {
+            position: relative;
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+
+        .field-group-title {
+            position: absolute;
+            top: -10px;
+            left: 10px;
+            background: white; /* Цвет должен совпадать с фоном страницы */
+            padding: 0 5px;
+            font-weight: bold;
+        }
+    </style>
+    <script src="signalr.min.js"></script>
+    <script>
+        var token1 = "";
+        var token2 = "";
+
+        const evnames = [
+            "message_confirmed",
+            "user_status",
+            "message_duplicate",
+            "message_new",
+            "message_delivered",
+            "unread_count_updated",
+            "unread_messages",
+            "typing_start",
+            "typing_stop",
+            "conversation_updated",
+            "conversation_new",
+            "members_added",
+            "message_read",
+            "message_deleted",
+            "message_edited",
+            "ReactionAdded",
+            "ReactionRemoved"
+        ]
+
+        async function login1() {
+            let data = await call("auth/login", { username: "string", password: "string" }, 'POST');
+            if (data) {
+                token1 = data.access_token
+                document.getElementById("key1").value = token1;
+                document.getElementById("key11").value = data.refresh_token;
+
+                document.getElementById("user1").value = data.user.display_name;
             }
+        }
 
-            .field-group-title {
-                position: absolute;
-                top: -10px;
-                left: 10px;
-                background: white; /* Цвет должен совпадать с фоном страницы */
-                padding: 0 5px;
-                font-weight: bold;
+        async function refresh1() {
+            let data = await call("auth/refresh", {
+                refreshToken: document.getElementById("key11").value
+            }, 'POST');
+            if (data) {
+                token1 = data.access_token;
+                document.getElementById("key1").value = data.access_token;
             }
-        </style>
-        <script src="signalr.min.js"></script>
-        <script>
-            var token1 = "";
-            var token2 = "";
+        }
 
-            const evnames = [
-                "message_confirmed",
-                "user_status",
-                "message_duplicate",
-                "message_new",
-                "message_delivered",
-                "unread_count_updated",
-                "unread_messages",
-                "typing_start",
-                "typing_stop",
-                "conversation_updated",
-                "conversation_new",
-                "members_added",
-                "message_read",
-                "message_deleted",
-                "message_edited"]
 
-            async function login1() {
-                let data = await call("auth/login", { username: "string", password: "string" }, 'POST');
-                if (data) {
-                    token1 = data.access_token
-                    document.getElementById("key1").value = token1;
-                    document.getElementById("key11").value = data.refresh_token;
-
-                    document.getElementById("user1").value = data.user.display_name;
-                }
+        async function get_chats() {
+            let data = await call("conversations", null, 'GET');
+            if (data) {
+                console.log(data);
+                if (!document.getElementById("chat1").value)
+                    document.getElementById("chat1").value = data.conversations[0].id
             }
+        }
 
-            async function refresh1() {
-                let data = await call("auth/refresh", {
-                    refreshToken: document.getElementById("key11").value
-                }, 'POST');
-                if (data) {
-                    token1 = data.access_token;
-                    document.getElementById("key1").value = data.access_token;
-                }
+        async function upload() {
+            let type = document.getElementById("type2").value;
+            let data = await sendFile("media", type);
+            if (data) {
+                console.log(data);
+                document.getElementById("mediaid").value = data.id
             }
+        }
 
+        async function read(n) {
+            let data = await call("conversations/" + document.getElementById("chat1").value + "/read", {
+                "last_read_message_id": document.getElementById("readn").value
+            }, 'POST');
+        }
 
-            async function get_chats() {
-                let data = await call("conversations",null, 'GET');
-                if (data) {
-                    console.log(data);
-                    if (!document.getElementById("chat1").value)
-                        document.getElementById("chat1").value = data.conversations[0].id
-                }
+        async function login2() {
+            let data = await call("auth/login", { username: "user1", password: "user1" }, 'POST');
+            if (data) {
+                token1 = data.access_token
+                document.getElementById("key1").value = token1;
+                document.getElementById("key11").value = data.refresh_token;
+                document.getElementById("user1").value = data.user.display_name;
             }
+        }
+        async function call(fn, p1, m) {
+            try {
+                const response = await fetch('/api/v1/' + fn, {
+                    method: m,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token1
+                    },
+                    body: p1 ? JSON.stringify(p1) : null
+                });
 
-            async function upload() {
-                let type = document.getElementById("type2").value;
-                let data = await sendFile("media", type);
-                if (data) {
-                    console.log(data);
-                    document.getElementById("mediaid").value = data.id
-                }
-            }
-
-            async function read(n) {
-                let data = await call("conversations/" + document.getElementById("chat1").value + "/read", {
-                    "last_read_message_id": document.getElementById("readn").value
-                }, 'POST');
-            }
-
-            async function login2() {
-                let data = await call("auth/login", { username: "user1", password: "user1" }, 'POST');
-                if (data) {
-                    token1 = data.access_token
-                    document.getElementById("key1").value = token1;
-                    document.getElementById("key11").value = data.refresh_token;
-                    document.getElementById("user1").value = data.user.display_name;
-                }
-            }
-            async function call(fn, p1, m) {
-                try {
-                    const response = await fetch('/api/v1/' + fn, {
-                        method: m,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': 'Bearer ' + token1
-                        },
-                        body: p1? JSON.stringify(p1): null
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        console.error(fn + " failed:", error);
-                        return null;
-                    }
-
-                    const data = await response.json();
-
-                    console.log(fn + " successful");
-                    return data;
-
-                } catch (error) {
-                    console.error(fn + " error:", error);
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error(fn + " failed:", error);
                     return null;
                 }
+
+                const data = await response.json();
+
+                console.log(fn + " successful");
+                return data;
+
+            } catch (error) {
+                console.error(fn + " error:", error);
+                return null;
             }
+        }
 
-            async function sendFile(fileInputId, type) {
-                try {
-                    const fileInput = document.getElementById(fileInputId);
-                    const file = fileInput.files[0];
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    formData.append('type', type);
-                    const response = await fetch('/api/v1/files/upload', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': 'Bearer ' + token1
-                        },
-                        body: formData
-                    });
+        async function sendFile(fileInputId, type) {
+            try {
+                const fileInput = document.getElementById(fileInputId);
+                const file = fileInput.files[0];
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('type', type);
+                const response = await fetch('/api/v1/files/upload', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token1
+                    },
+                    body: formData
+                });
 
-                    if (!response.ok) {
-                        const error = await response.json();
-                        console.error("post file failed:", error);
-                        return null;
-                    }
-
-                    const data = await response.json();
-
-                    console.log("post file successful");
-                    return data;
-
-                } catch (error) {
-                    console.error("post file error:", error);
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error("post file failed:", error);
                     return null;
                 }
+
+                const data = await response.json();
+
+                console.log("post file successful");
+                return data;
+
+            } catch (error) {
+                console.error("post file error:", error);
+                return null;
             }
-            function connect1(){
-                con1 = new signalR.HubConnectionBuilder()
-                    .withUrl(`/chatHub?access_token=${token1}`)
-                    .withHubProtocol(new signalR.JsonHubProtocol())
-                    //.withHubProtocol(new MessagePackHubProtocol())
-                    //.configureLogging(signalR.LogLevel.Trace)
-                    .build();
-                //con1.on("*", (eventName, ...args) => {
-                //    console.log("Con1: Received:", eventName, args);
-                //});
-                for (var i = 0; i < evnames.length; i++) {
-                    let n = evnames[i];
-                    con1.on(n, (a, b, c) => {
-                        console.log("Con1: " + n + ":", { a, b, c });
-                    });
-                }
-                con1.start().then(() => {
-                    console.log("Con1: connected ");
+        }
+        function connect1() {
+            con1 = new signalR.HubConnectionBuilder()
+                .withUrl(`/chatHub?access_token=${token1}`)
+                .withHubProtocol(new signalR.JsonHubProtocol())
+                //.withHubProtocol(new MessagePackHubProtocol())
+                //.configureLogging(signalR.LogLevel.Trace)
+                .build();
+            //con1.on("*", (eventName, ...args) => {
+            //    console.log("Con1: Received:", eventName, args);
+            //});
+            for (var i = 0; i < evnames.length; i++) {
+                let n = evnames[i];
+                con1.on(n, (a, b, c) => {
+                    console.log("Con1: " + n + ":", { a, b, c });
                 });
             }
+            con1.start().then(() => {
+                console.log("Con1: connected ");
+            });
+        }
 
-            function connect2() {
-                con2 = new signalR.HubConnectionBuilder()
-                    .withUrl(`/chatHub?access_token=${token2}`)
-                    .build();
-                for (var i = 0; i < evnames.length; i++) {
-                    let n = evnames[i];
-                    con2.on(n, (a, b, c) => {
-                        console.log("Con2: " + n + ":", { a, b, c });
-                    });
-                }
-                con2.start().then(() => {
-                    console.log("Con2: connected ");
+        function connect2() {
+            con2 = new signalR.HubConnectionBuilder()
+                .withUrl(`/chatHub?access_token=${token2}`)
+                .build();
+            for (var i = 0; i < evnames.length; i++) {
+                let n = evnames[i];
+                con2.on(n, (a, b, c) => {
+                    console.log("Con2: " + n + ":", { a, b, c });
                 });
             }
-function send1() {
-    console.log(document.getElementById("mention1").value);
-                con1.invoke("SendMessage",
-                    {
-                        "conversation_id": document.getElementById("chat1").value,
-                        "text": document.getElementById("text1").value,
-                        "temp_id": generateGUID(),
-                        "reply_to_message_id": null,
-                        "type": document.getElementById("type1").value,
-                        "attachment_ids": JSON.parse(document.getElementById("attach1").value),
-                        "mentions": JSON.parse(document.getElementById("mention1").value)
-                    }
-                );
-            }
-
-            function openchat() {
-                con1.invoke("JoinConversation",
-                    {
-                        "conversation_id": document.getElementById("chat1").value
-                    }
-                );
-            }
-            function closechat() {
-                con1.invoke("LeaveConversation",
-                    {
-                        "conversation_id": document.getElementById("chat1").value
-                    }
-                );
-            }
-
-            function typing(v) {
-                con1.invoke(v ? "SendTyping" :"StopTyping",
-                    {
-                        "conversation_id": document.getElementById("chat1").value
-                    }
-                );
-            }
-
-            function send2() {
-                con2.invoke("SendMessage", {
-                        "conversation_id": "294497f0-e6ff-426b-9a7d-bd36747d8785",
-                        "text": "test",
+            con2.start().then(() => {
+                console.log("Con2: connected ");
+            });
+        }
+        function send1() {
+            console.log(document.getElementById("mention1").value);
+            con1.invoke("SendMessage",
+                {
+                    "conversation_id": document.getElementById("chat1").value,
+                    "text": document.getElementById("text1").value,
                     "temp_id": generateGUID(),
-                        "reply_to_message_id": null,
-                        "type": "text",
-                        "attachment_ids": null
-                    }                                       
-                );
-            }
-            function generateGUID() {
-                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-                    const r = Math.random() * 16 | 0;
-                    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                    return v.toString(16);
-                });
-            }
-            async function forwardMessagesTest() {
-                try {
-                    const targetChatId = document.getElementById("targetChatId").value;
-
-                    // Читаем массив ID сообщений, который ввел пользователь
-                    const messageIds = JSON.parse(document.getElementById("forwardMessageIds").value);
-
-                    // Автоматически генерируем массив temp_id нужной длины прямо в коде
-                    const tempIds = [];
-                    for (let i = 0; i < messageIds.length; i++) {
-                        tempIds.push(generateGUID());
-                    }
-
-                    console.log("Отправка ForwardMessages (temp_ids сгенерированы автоматически):", { targetChatId, messageIds, tempIds });
-
-                    // Вызываем метод хаба
-                    const createdMessages = await con1.invoke("ForwardMessages", {
-                        "target_conversation_id": targetChatId,
-                        "message_ids": messageIds,
-                        "temp_ids": tempIds
-                    });
-
-                    console.log("Hub-метод ForwardMessages успешно вернул ответ:", createdMessages);
-
-                } catch (error) {
-                    console.error("Ошибка выполнения ForwardMessages в Хабе:", error);
+                    "reply_to_message_id": null,
+                    "type": document.getElementById("type1").value,
+                    "attachment_ids": JSON.parse(document.getElementById("attach1").value),
+                    "mentions": JSON.parse(document.getElementById("mention1").value)
                 }
+            );
+        }
+
+        function openchat() {
+            con1.invoke("JoinConversation",
+                {
+                    "conversation_id": document.getElementById("chat1").value
+                }
+            );
+        }
+        function closechat() {
+            con1.invoke("LeaveConversation",
+                {
+                    "conversation_id": document.getElementById("chat1").value
+                }
+            );
+        }
+
+        function typing(v) {
+            con1.invoke(v ? "SendTyping" : "StopTyping",
+                {
+                    "conversation_id": document.getElementById("chat1").value
+                }
+            );
+        }
+
+        function send2() {
+            con2.invoke("SendMessage", {
+                "conversation_id": "294497f0-e6ff-426b-9a7d-bd36747d8785",
+                "text": "test",
+                "temp_id": generateGUID(),
+                "reply_to_message_id": null,
+                "type": "text",
+                "attachment_ids": null
             }
-        </script>
-    </head>
+            );
+        }
+        function generateGUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        async function forwardMessagesTest() {
+            try {
+                const targetChatId = document.getElementById("targetChatId").value;
+
+                // Читаем массив ID сообщений, который ввел пользователь
+                const messageIds = JSON.parse(document.getElementById("forwardMessageIds").value);
+
+                // Автоматически генерируем массив temp_id нужной длины прямо в коде
+                const tempIds = [];
+                for (let i = 0; i < messageIds.length; i++) {
+                    tempIds.push(generateGUID());
+                }
+
+                console.log("Sending ForwardMessages:", { targetChatId, messageIds, tempIds });
+
+                // Вызываем метод хаба
+                const createdMessages = await con1.invoke("ForwardMessages", {
+                    "target_conversation_id": targetChatId,
+                    "message_ids": messageIds,
+                    "temp_ids": tempIds
+                });
+
+                console.log("Hub ForwardMessages success:", createdMessages);
+
+            } catch (error) {
+                console.error("Error ForwardMessages in HUB:", error);
+            }
+        }
+        async function addReactionTest(msgId, emojiSymbol) {
+            const chatId = document.getElementById("chat1").value;
+            let url = `conversations/${chatId}/messages/${msgId}/reactions`;
+
+            console.log(`HTTP POST: Set reaction ${emojiSymbol}`);
+            let data = await call(url, { emoji: emojiSymbol }, 'POST');
+            if (data) console.log("Server on set reaction responce:", data);
+        }
+
+        async function removeReactionTest(msgId, emojiSymbol) {
+            const chatId = document.getElementById("chat1").value;
+            // Кодируем эмодзи в URL формат (например, 👍 станет %F0%9F%91%8D)
+            const encodedEmoji = encodeURIComponent(emojiSymbol);
+            let url = `conversations/${chatId}/messages/${msgId}/reactions/${encodedEmoji}`;
+
+            console.log(`HTTP DELETE: Remove reaction ${emojiSymbol}`);
+            // Ваша функция call ожидает json на выходе, для 204 No Content можно вызвать fetch напрямую или адаптировать call
+            const response = await fetch('/api/v1/' + url, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token1 }
+            });
+            if (response.ok) console.log("Reaction removed (204)");
+        }
+    </script>
+</head>
     <body>
         <h1>IDMCHat Hub</h1>
         <button onclick="login1()">Login1</button>
@@ -326,6 +353,27 @@ function send1() {
                 <button onclick="forwardMessagesTest()" style="background-color: #0076ff; color: white; margin-top: 5px; padding: 5px 10px; border: none; cursor: pointer;">
                     Execute ForwardMessages
                 </button>
+            </div>
+            <div class="field-group">
+                <span class="field-group-title" style="font-weight: bold; color: #e67e22;">Reactions Test (REST)</span><br />
+
+                <label for="reactMsgId">Message ID:</label>
+                <input id="reactMsgId" type="number" style="width: 150px;" /><br />
+
+                <div style="margin-top: 5px;">
+                    <span>Add reaction:</span>
+                    <button onclick="addReactionTest(document.getElementById('reactMsgId').value, '👍')">👍</button>
+                    <button onclick="addReactionTest(document.getElementById('reactMsgId').value, '🔥')">🔥</button>
+                    <button onclick="addReactionTest(document.getElementById('reactMsgId').value, '🚀')">🚀</button>
+                </div>
+
+                <!-- Кнопки для быстрого удаления (DELETE) -->
+                <div style="margin-top: 5px;">
+                    <span>Remove reaction:</span>
+                    <button onclick="removeReactionTest(document.getElementById('reactMsgId').value, '👍')" style="border-color: #e74c3c;">👍</button>
+                    <button onclick="removeReactionTest(document.getElementById('reactMsgId').value, '🔥')" style="border-color: #e74c3c;">🔥</button>
+                    <button onclick="removeReactionTest(document.getElementById('reactMsgId').value, '🚀')" style="border-color: #e74c3c;">🚀</button>
+                </div>
             </div>
             <br />
             <div id="chats"></div>

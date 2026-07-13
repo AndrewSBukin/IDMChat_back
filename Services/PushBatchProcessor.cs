@@ -235,10 +235,10 @@ namespace IDMChat.Services
                                 },
                                 Data = new Dictionary<string, string>()
                                 {
-                                    { "chat_id", conversationId.ToString() },
-                                    { "message_id", task.MessageId.ToString() },
+                                    { "chatId", conversationId.ToString() },
+                                    { "messageId", task.MessageId.ToString() },
                                     { "type", "message" },
-                                    { "unread_count", userUnreadCount.ToString() }
+                                    { "unreadCount", userUnreadCount.ToString() }
                                 },
                                 Android = new AndroidConfig()
                                 {

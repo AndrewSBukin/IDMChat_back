@@ -76,6 +76,7 @@ namespace IDMChat.Models
         public ICollection<MessageMention> Mentions { get; set; } = new List<MessageMention>();
 
         public User OriginalSender { get; set; }
+        public List<MessageReaction> Reactions { get; set; } = new List<MessageReaction>();
     }
 
     public enum MessageType

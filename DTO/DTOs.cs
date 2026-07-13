@@ -303,6 +303,8 @@ namespace IDMChat.DTO
         public List<UserBriefDto>? read_by { get; set; }
 
         public List<UserMention> mentions { get; set; } = new List<UserMention>();
+
+        public List<ReactionGroupDto> reactions { get; set; } = new();
     }
 
     public class AttachmentDto
@@ -363,6 +365,20 @@ namespace IDMChat.DTO
         List<long> message_ids,
         List<string> temp_ids
     );
+
+    public class ReactionGroupDto
+    {
+        public string emoji { get; set; } = string.Empty;
+        public int count { get; set; }
+        public List<Guid> userIds { get; set; } = new();
+        public bool isMine { get; set; }
+    }
+    public record ReactionAddedResponseDto(
+        string emoji,
+        Guid userId,
+        int count
+    );
+    public record AddReactionRequestDto(string emoji);
 
     #region Settings
     // Request DTO
