@@ -23,14 +23,16 @@ namespace IDMChat.Hubs
         private readonly UserCache _userCache;
         private readonly ILogger<ChatHub> _logger;
         private readonly IChatPathUrlResolver _urlResolver;
+        private readonly IBackgroundPushQueue _backgroundPushQueue;
 
-        public ChatHub(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver)
+        public ChatHub(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundPushQueue backgroundPushQueue)
         {
             _db = dbContext;
             _chatCache = chatCache;
             _userCache = userCache;
             _logger = logger;
             _urlResolver = urlResolver;
+            _backgroundPushQueue = backgroundPushQueue;
         }
 
         public override async Task OnConnectedAsync()
@@ -121,6 +123,7 @@ namespace IDMChat.Hubs
 
             // 3. Очистить ConnectionId в UserCache
             _userCache.RemoveConnection(userId, Context.ConnectionId);
+            _userCache.LeaveConversation(userId);
 
             // 4. Обновить статус в БД (опционально)
             if (user != null)
@@ -615,6 +618,18 @@ namespace IDMChat.Hubs
                     : new List<Guid>();
 
                 // Скидываем тяжелую задачу отправки пушей в фоновую очередь, полностью освобождая основной поток чата
+                _backgroundPushQueue.Enqueue(new PushNotificationTask
+                {
+                    // Заполняем DTO данными, которые батч-процессор отправит на шлюз
+                    ConversationId = message.ConversationId,
+                    SenderId = message.SenderId,
+                    MessageText = message.Text,
+                    MessageType = msg.type, 
+                    MessageId = message.Id,
+
+                    // Передаем ID пользователей, кому предназначен пуш (например, меншены или все участники чата)
+                    TargetUserIds = validMentionIds.ToList()
+                });
                 //_backgroundQueue.QueueBackgroundWorkItem(async token =>
                 //{
                 //    using var scope = _serviceProvider.CreateScope();
@@ -680,44 +695,7 @@ namespace IDMChat.Hubs
 
             await Groups.AddToGroupAsync(Context.ConnectionId, data.conversation_id.ToString());
 
-            // Отправляем последние непрочитанные сообщения (только для этого чата)
-            //var member = await _db.ConversationMembers
-            //    .FirstOrDefaultAsync(cm => cm.ConversationId == data.conversation_id && cm.UserId == userId);
-
-            //if (member?.UnreadCount > 0)
-            //{
-            //    var unreadMessages = await _db.Messages
-            //        .Where(m => m.ConversationId == data.conversation_id
-            //                    && m.Id > (member.LastReadMessageId ?? 0)
-            //                    && !m.IsDeleted)
-            //        .OrderBy(m => m.Id)
-            //        .Take(50)
-            //        .Select(m => new MessageDto
-            //        {
-            //            id = m.Id,
-            //            conversation_id = m.ConversationId,
-            //            sender_id = m.SenderId,
-            //            sender = new UserBriefDto
-            //            {
-            //                id = m.Sender.Id,
-            //                display_name = m.Sender.DisplayName,
-            //                avatar_url = m.Sender.AvatarUrl
-            //            },
-            //            type = m.Type.ToString().ToLower(),
-            //            text = m.Text,
-            //            created_at = m.CreatedAt
-            //        })
-            //        .ToListAsync();
-
-            //    await Clients.Caller.SendAsync("unread_messages", new
-            //    {
-            //        conversation_id = data.conversation_id,
-            //        messages = unreadMessages
-            //    });
-
-            //    // Сбрасываем счётчик непрочитанных в кэше
-            //    _chatCache.ResetUnreadCount(data.conversation_id, userId);
-            //}
+            _userCache.JoinConversation(userId, data.conversation_id);
 
             _logger.LogDebug("User {UserId} joined conversation {ConversationId}", userId, data.conversation_id);
         }
@@ -726,6 +704,7 @@ namespace IDMChat.Hubs
         {
             var userId = Context.GetUserId();
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, data.conversation_id.ToString());
+            _userCache.LeaveConversation(userId);
             _logger.LogDebug("User {UserId} left conversation {ConversationId}", userId, data.conversation_id);
         }
 

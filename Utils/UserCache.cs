@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using IDMChat.Models;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
 namespace IDMChat.Utils
@@ -16,6 +17,7 @@ namespace IDMChat.Utils
         private readonly ConcurrentDictionary<Guid, string> _connections = new();
         private readonly ConcurrentDictionary<Guid, bool> _onlineStatus = new();
         private readonly ConcurrentDictionary<Guid, CachedUser> _userData = new();
+        private readonly ConcurrentDictionary<Guid, Guid> _activeChats = new();
 
         public void AddConnection(Guid userId, string connectionId)
         {
@@ -66,6 +68,25 @@ namespace IDMChat.Utils
         public string GetDisplayName(Guid userId)
         {
             return _userData.TryGetValue(userId, out var user) ? user.DisplayName ?? "-" : "-";
+        }
+
+
+        public void JoinConversation(Guid userId, Guid conversationId)
+        {
+            _activeChats[userId] = conversationId;
+        }
+
+        public void LeaveConversation(Guid userId)
+        {
+            _activeChats.TryRemove(userId, out _);
+        }
+        public Guid? GetCurrentChatId(Guid userId)
+        {
+            if (_activeChats.TryGetValue(userId, out var conversationId))
+            {
+                return conversationId;
+            }
+            return null;
         }
     }
 }

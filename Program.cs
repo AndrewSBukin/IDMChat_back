@@ -154,8 +154,8 @@ namespace IDMChat
 
             builder.Services.AddAuthorization();
 
-            builder.Services.AddSingleton<IBackgroundLogQueue, BackgroundLogQueue>();
-            builder.Services.AddHostedService<LogBatchProcessor>(); // background writer
+            builder.Services.AddSingleton<IBackgroundPushQueue, BackgroundPushQueue>();
+            builder.Services.AddHostedService<PushBatchProcessor>(); // background writer
 
             builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
             {

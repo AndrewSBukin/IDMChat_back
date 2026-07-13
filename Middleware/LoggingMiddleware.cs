@@ -13,13 +13,13 @@ namespace IDMChat.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<LoggingMiddleware> _logger;
-        private readonly IBackgroundLogQueue _logQueue; // our custom queue
+        private readonly IBackgroundPushQueue _logQueue; // our custom queue
         private readonly int _maxBodyLength;
 
         public LoggingMiddleware(
             RequestDelegate next,
             ILogger<LoggingMiddleware> logger,
-            IBackgroundLogQueue logQueue,
+            IBackgroundPushQueue logQueue,
             IConfiguration configuration)
         {
             _next = next;

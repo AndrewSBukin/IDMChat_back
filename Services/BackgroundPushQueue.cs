@@ -3,26 +3,25 @@ using System.Threading.Channels;
 
 namespace IDMChat.Services
 {
-    public interface IBackgroundLogQueue
+    public interface IBackgroundPushQueue
     {
-        void Enqueue(RequestResponseLog log);
-        IAsyncEnumerable<RequestResponseLog> DequeueAllAsync(CancellationToken ct);
+        void Enqueue(PushNotificationTask log);
+        IAsyncEnumerable<PushNotificationTask> DequeueAllAsync(CancellationToken ct);
         long GetApproximateQueueSize();
-        //bool TryGetChannelReader(out ChannelReader<RequestResponseLog> reader);
         void OnBatchConsumed(int batchSize);
     }
 
-    public class BackgroundLogQueue : IBackgroundLogQueue, IDisposable
+    public class BackgroundPushQueue : IBackgroundPushQueue, IDisposable
     {
-        private readonly Channel<RequestResponseLog> _channel;
-        private readonly ILogger<BackgroundLogQueue>? _logger;
+        private readonly Channel<PushNotificationTask> _channel;
+        private readonly ILogger<BackgroundPushQueue>? _logger;
         private long _approximateQueueSize;
 
-        public BackgroundLogQueue(ILogger<BackgroundLogQueue>? logger = null)
+        public BackgroundPushQueue(ILogger<BackgroundPushQueue>? logger = null)
         {
             _logger = logger;
 
-            _channel = Channel.CreateUnbounded<RequestResponseLog>(new UnboundedChannelOptions
+            _channel = Channel.CreateUnbounded<PushNotificationTask>(new UnboundedChannelOptions
             {
                 SingleReader = true,      // Only LogBatchProcessor reads
                 SingleWriter = false,     // Multiple middleware instances can write
@@ -36,22 +35,22 @@ namespace IDMChat.Services
             }
         }
 
-        public void Enqueue(RequestResponseLog log)
+        public void Enqueue(PushNotificationTask pushTask)
         {
-            if (log == null) throw new ArgumentNullException(nameof(log));
+            if (pushTask == null) throw new ArgumentNullException(nameof(pushTask));
 
-            if (_channel.Writer.TryWrite(log))
+            if (_channel.Writer.TryWrite(pushTask))
             {
                 Interlocked.Increment(ref _approximateQueueSize);
             }
             else
             {
                 // Channel is closed (application shutting down)
-                _logger?.LogWarning("Failed to enqueue log - channel is closed. Log: {RequestId}", log.RequestId);
+                _logger?.LogWarning("Failed to enqueue push notification - channel is closed. Sender: {SenderId}", pushTask.SenderId);
             }
         }
 
-        public IAsyncEnumerable<RequestResponseLog> DequeueAllAsync(CancellationToken cancellationToken)
+        public IAsyncEnumerable<PushNotificationTask> DequeueAllAsync(CancellationToken cancellationToken)
         {
             return _channel.Reader.ReadAllAsync(cancellationToken);
         }
@@ -61,7 +60,7 @@ namespace IDMChat.Services
             return Interlocked.Read(ref _approximateQueueSize);
         }
 
-        public bool TryGetChannelReader(out ChannelReader<RequestResponseLog> reader)
+        public bool TryGetChannelReader(out ChannelReader<PushNotificationTask> reader)
         {
             reader = _channel.Reader;
             return true;
@@ -85,13 +84,13 @@ namespace IDMChat.Services
             {
                 var size = GetApproximateQueueSize();
 
-                if (size > 10000)
+                if (size > 5000)
                 {
-                    _logger?.LogWarning("Log queue backlog is growing: {QueueSize} logs pending", size);
+                    _logger?.LogWarning("Push notification queue backlog is growing: {QueueSize} tasks pending", size);
                 }
-                else if (size > 1000)
+                else if (size > 500)
                 {
-                    _logger?.LogDebug("Log queue size: {QueueSize}", size);
+                    _logger?.LogDebug("Push queue size: {QueueSize}", size);
                 }
             }
         }
