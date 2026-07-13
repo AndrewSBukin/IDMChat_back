@@ -1,4 +1,5 @@
-﻿using IDMChat.Models;
+﻿using IDMChat.Controllers;
+using IDMChat.Models;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -294,6 +295,10 @@ namespace IDMChat.DTO
         public DateTime? updated_at { get; set; }
 
         public int read_count { get; set; }
+
+        public bool is_forwarded { get; set; }
+        public UserBriefDto? forward_from { get; set; }
+
         // ⚠️ Для личных чатов, для групп от 5 человек - null
         public List<UserBriefDto>? read_by { get; set; }
 
@@ -308,6 +313,8 @@ namespace IDMChat.DTO
         public string mime_type { get; set; } = string.Empty;
         public string url { get; set; } = string.Empty;
         public string? thumbnail_url { get; set; }
+        public int? duration { get; set; }
+        public FilesController.FileType type { get; set; }
     }
     public class ConversationUpdatedDto
     {
@@ -345,6 +352,17 @@ namespace IDMChat.DTO
         public string? ThumbnailUrl { get; set; }
         public int? Duration { get; set; }
     }
+
+    public record ForwardMessagesDto(
+        List<long> MessageIds,       // Что пересылаем (оригинальные Message.Id)
+        Guid TargetConversationId    // Куда пересылаем
+    );
+
+    public record HubForwardMessagesDto(
+        Guid target_conversation_id,
+        List<long> message_ids,
+        List<string> temp_ids
+    );
 
     #region Settings
     // Request DTO

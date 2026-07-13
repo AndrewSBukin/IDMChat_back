@@ -87,12 +87,15 @@ namespace IDMChat.Utils
         {
             if (_cache.TryGetValue(conversationId, out CachedConversation cached))
             {
-                cached.LastMessageId = message.Id;
-                cached.LastMessageText = truncatedText;
-                cached.LastMessageSenderId = message.SenderId;
-                cached.LastMessageCreatedAt = message.CreatedAt;
-                cached.UpdatedAt = message.CreatedAt;
-                _cache.Set(conversationId, cached, _cacheOptions);
+                lock (cached.LockObject)
+                {
+                    cached.LastMessageId = message.Id;
+                    cached.LastMessageText = truncatedText;
+                    cached.LastMessageSenderId = message.SenderId;
+                    cached.LastMessageCreatedAt = message.CreatedAt;
+                    cached.UpdatedAt = message.CreatedAt;
+                    //_cache.Set(conversationId, cached, _cacheOptions);
+                }
             }
         }
 
@@ -133,6 +136,8 @@ namespace IDMChat.Utils
 
     public class CachedConversation
     {
+        public readonly object LockObject = new();
+
         public Guid Id { get; set; }
         public ConversationType Type { get; set; }
         public string? Name { get; set; }

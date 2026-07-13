@@ -59,6 +59,10 @@ namespace IDMChat.Models
         //    set => KeyboardJson = JsonSerializer.Serialize(value);
         //}
 
+        public bool IsForwarded { get; set; }
+        public Guid? OriginalSenderId { get; set; }
+
+        /// //////////////////////////////////////////////////////////////////////////
 
         [ForeignKey(nameof(ReplyToMessageId))]
         public Message? ReplyToMessage { get; set; }
@@ -70,6 +74,8 @@ namespace IDMChat.Models
         public List<FileAttachment> FileAttachments { get; set; }
 
         public ICollection<MessageMention> Mentions { get; set; } = new List<MessageMention>();
+
+        public User OriginalSender { get; set; }
     }
 
     public enum MessageType

@@ -999,7 +999,9 @@ namespace IDMChat.Controllers
                             file_size = f.FileSize,
                             mime_type = f.MimeType,
                             url = _urlResolver.ResolveUrl(f.StoragePath),
-                            thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath)
+                            thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath), 
+                            duration = f.Duration, 
+                            type = f.Type
                         }
                     })
                     .ToListAsync(ct);
@@ -1617,6 +1619,186 @@ namespace IDMChat.Controllers
             {
                 return StatusCode( 204, new UnreadCountErrorDto(0, ex.Message) );
             }
+        }
+        #endregion
+
+        #region Forward
+        [HttpPost("{id}/messages/forward")]
+        [Authorize]
+        public async Task<IActionResult> ForwardMessages(Guid id, [FromBody] ForwardMessagesDto dto)
+        {
+            var currentUserId = HttpContext.GetCurrentUserId();
+            var targetConversationId = dto.TargetConversationId;
+
+            // 1. Проверяем, что целевой чат существует и у пользователя есть доступ (через ChatStateCache)
+            if (dto.MessageIds == null || dto.MessageIds.Count == 0)
+                return BadRequest("Список сообщений пуст.");
+
+            if (dto.MessageIds.Count > 30)
+                return BadRequest($"Нельзя пересылать более 30 сообщений за один раз.");
+
+            var cachedChat = await _chatCache.GetConversationAsync(targetConversationId);
+            if (cachedChat == null)
+                return NotFound("Целевой чат не найден.");
+
+            if (!cachedChat.Members.Contains(currentUserId))
+                return Forbid("Вы не являетесь участником целевого чата.");
+
+            if (cachedChat.IsWriteRestricted && !cachedChat.Admins.Contains(currentUserId))
+                return Forbid("В этот чат могут писать только администраторы.");
+
+            // 2. Загружаем оригинальные сообщения вместе с вложениями
+            var originalMessages = await _db.Messages
+                .Include(m => m.FileAttachments)
+                .Where(m => dto.MessageIds.Contains(m.Id) && !m.IsDeleted)
+                .OrderBy(m => m.Id) // Сохраняем хронологию при пересылке
+                .ToListAsync();
+
+            if (!originalMessages.Any()) return NotFound("Сообщения не найдены");
+
+            var newMessages = new List<Message>();
+            var newAttachments = new List<FileAttachment>();
+
+            foreach (var orig in originalMessages)
+            {
+                Guid originalSenderId = orig.IsForwarded && orig.OriginalSenderId.HasValue
+                    ? orig.OriginalSenderId.Value
+                    : orig.SenderId;
+
+                // Создаем новое сообщение в целевом чате
+                var newMessage = new Message
+                {
+                    SenderId = currentUserId,
+                    ConversationId = dto.TargetConversationId,
+                    Text = orig.Text,
+                    Type = orig.Type, // Например, Text, Media, Voice
+                    CreatedAt = DateTime.UtcNow,
+                    SentAt = DateTime.UtcNow,
+                    IsForwarded = true,
+                    OriginalSenderId = originalSenderId
+                };
+
+                newMessages.Add(newMessage);
+
+                // Если у сообщения были файлы, копируем только записи в БД
+                if (orig.FileAttachments != null)
+                {
+                    foreach (var origAtt in orig.FileAttachments)
+                    {
+                        newAttachments.Add(new FileAttachment
+                        {
+                            Id = Guid.NewGuid(),
+                            Message = newMessage, // Связываем с еще не сохраненным newMessage (EF Core сам проставит long Id после SaveChanges)
+                            ConversationId = dto.TargetConversationId,
+                            UserId = currentUserId,
+                            FileName = origAtt.FileName,
+                            FileSize = origAtt.FileSize,
+                            MimeType = origAtt.MimeType,
+                            StoragePath = origAtt.StoragePath, // Указывает на тот же файл на диске
+                            ThumbnailPath = origAtt.ThumbnailPath,
+                            Duration = origAtt.Duration,
+                            Type = origAtt.Type,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+            }
+
+            // Сохраняем все одним пакетом (атомарная транзакция)
+            _db.Messages.AddRange(newMessages);
+            if (newAttachments.Any()) _db.FileAttachments.AddRange(newAttachments);
+
+            await _db.SaveChangesAsync();
+
+            // 3. Обновляем денормализованные поля LastMessage* в Conversation (Исправляем вашу проблему из п.11)
+            var lastMessage = newMessages.Last();
+            await UpdateConversationLastMessage(dto.TargetConversationId, lastMessage);
+
+            // 4. Уведомляем пользователей через SignalR
+            await NotifyClientsAboutForwardedMessages(dto.TargetConversationId, newMessages);
+
+            return Ok();
+        }
+
+        private async Task UpdateConversationLastMessage(Guid conversationId, Message lastMessage)
+        {
+            string truncatedText = lastMessage.Text?.Length > 100
+                ? lastMessage.Text.Substring(0, 100) + "..."
+                : lastMessage.Text ?? string.Empty;
+
+
+            // Быстрое обновление денормализованных полей напрямую в БД
+            await _db.Conversations
+                .Where(c => c.Id == conversationId)
+                .ExecuteUpdateAsync(calls => calls
+                    .SetProperty(c => c.LastMessageId, lastMessage.Id)
+                    .SetProperty(c => c.LastMessageText, truncatedText)
+                    .SetProperty(c => c.LastMessageSenderId, lastMessage.SenderId)
+                    .SetProperty(c => c.LastMessageCreatedAt, lastMessage.CreatedAt)
+                    .SetProperty(c => c.UpdatedAt, DateTime.UtcNow)
+                );
+
+            _chatCache.UpdateLastMessage(conversationId, lastMessage, truncatedText);
+        }
+
+        private async Task NotifyClientsAboutForwardedMessages(Guid conversationId, List<Message> newMessages)
+        {
+            var messageDtos = new List<MessageDto>();
+            foreach (var message in newMessages)
+            {
+                var senderFromCache = _userCache.GetUser(message.SenderId);
+                var originalSenderFromCache = _userCache.GetUser(message.OriginalSenderId!.Value);
+
+                var attachmentsDto = message.FileAttachments?.Select(att => new AttachmentDto
+                {
+                    id = att.Id,
+                    file_name = att.FileName,
+                    file_size = att.FileSize,
+                    mime_type = att.MimeType,
+                    url = _urlResolver.ResolveUrl(att.StoragePath),
+                    thumbnail_url = _urlResolver.ResolveUrl(att.ThumbnailPath),
+                    duration = att.Duration,
+                    type = att.Type
+                }).ToList();
+
+                var dto = new MessageDto
+                {
+                    id = message.Id,
+                    conversation_id = conversationId,
+                    sender_id = message.SenderId,
+                    type = message.Type.ToString().ToLower(),
+                    text = message.Text,
+                    created_at = message.CreatedAt,
+                    attachments = attachmentsDto,
+                    reply_to = null,
+                    reply_to_id = null,
+                    mentions = new List<UserMention>(),
+
+                    sender = new UserBriefDto
+                    {
+                        id = message.SenderId,
+                        display_name = senderFromCache?.DisplayName ?? "-",
+                        avatar_url = _urlResolver.ResolveUrl(senderFromCache?.AvatarUrl)
+                    },
+
+                    is_forwarded = true,
+                    forward_from = new UserBriefDto
+                    {
+                        id = message.OriginalSenderId.Value,
+                        display_name = originalSenderFromCache?.DisplayName ?? "Удаленный пользователь",
+                        avatar_url = _urlResolver.ResolveUrl(originalSenderFromCache?.AvatarUrl)
+                    }
+                };
+
+                messageDtos.Add(dto);
+            }
+
+            // Отправляем всей группе SignalR, которая находится в этом чате
+            await _hubContext.Clients.Group(conversationId.ToString()).SendAsync("messages_forwarded", new
+            {
+                conversation_id = conversationId,
+                messages = messageDtos
+            });
         }
         #endregion
 

@@ -20,11 +20,8 @@
         </style>
         <script src="signalr.min.js"></script>
         <script>
-            //import * as signalR from "@microsoft/signalr";
-            //import { MessagePackHubProtocol } from "@microsoft/signalr-protocol-msgpack";
-
-            var token1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjY2YWMzYjE0LWYwN2ItNDU2Yi1iNTMzLTk1MmNhMGRmMzdjYiIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL25hbWUiOiJzdHJpbmciLCJkaXNwbGF5X25hbWUiOiJCQW5kIiwiZXhwIjoxNzc5NDM5NDczLCJpc3MiOiJDaGF0U2VydmVyIiwiYXVkIjoiSURNQ2hhdCJ9.C2Bj9w767wTsQXhwK-1Vyx_xKcPhMAcQPidOmkG3J9A";
-            var token2 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjY5ZThlOTNhLTE1YzMtNGZiNS1hMWY5LTRlYzEwZGNiNGQ0OSIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL25hbWUiOiJ1c2VyMSIsImRpc3BsYXlfbmFtZSI6InVzZXIxIiwiZXhwIjoxNzc5NDQwODI5LCJpc3MiOiJDaGF0U2VydmVyIiwiYXVkIjoiSURNQ2hhdCJ9.E_lLnSy7yi6pdWtVptV2A6Q2oVWSvMaF1d4puK8vUG8";
+            var token1 = "";
+            var token2 = "";
 
             const evnames = [
                 "message_confirmed",
@@ -231,15 +228,6 @@ function send1() {
             }
 
             function send2() {
-                //con2.invoke("SendMessage",
-                //    "294497f0-e6ff-426b-9a7d-bd36747d8785",  // conversationId (Guid)
-                //    "Hello!",                                    // text (string)
-                //    generateGUID(),                             // tempId (Guid)
-                //    null,                                       // replyToMessageId (long?)
-                //    "text",                                     // type (string)
-                //    null                                        // attachmentIds (List<Guid>?)
-                //);
-
                 con2.invoke("SendMessage", {
                         "conversation_id": "294497f0-e6ff-426b-9a7d-bd36747d8785",
                         "text": "test",
@@ -256,6 +244,34 @@ function send1() {
                     const v = c === 'x' ? r : (r & 0x3 | 0x8);
                     return v.toString(16);
                 });
+            }
+            async function forwardMessagesTest() {
+                try {
+                    const targetChatId = document.getElementById("targetChatId").value;
+
+                    // Читаем массив ID сообщений, который ввел пользователь
+                    const messageIds = JSON.parse(document.getElementById("forwardMessageIds").value);
+
+                    // Автоматически генерируем массив temp_id нужной длины прямо в коде
+                    const tempIds = [];
+                    for (let i = 0; i < messageIds.length; i++) {
+                        tempIds.push(generateGUID());
+                    }
+
+                    console.log("Отправка ForwardMessages (temp_ids сгенерированы автоматически):", { targetChatId, messageIds, tempIds });
+
+                    // Вызываем метод хаба
+                    const createdMessages = await con1.invoke("ForwardMessages", {
+                        "target_conversation_id": targetChatId,
+                        "message_ids": messageIds,
+                        "temp_ids": tempIds
+                    });
+
+                    console.log("Hub-метод ForwardMessages успешно вернул ответ:", createdMessages);
+
+                } catch (error) {
+                    console.error("Ошибка выполнения ForwardMessages в Хабе:", error);
+                }
             }
         </script>
     </head>
@@ -279,12 +295,12 @@ function send1() {
             <button onclick="typing(0)">StopTyping</button>
             <div class="field-group">
                 <span class="field-group-title">New message</span><br />
-                                                                  <select id="type2" name="type2">
-                                                                      <option value="image" selected>image</option>
-                                                                      <option value="video">video</option>
-                                                                      <option value="voice">voice</option>
-                                                                      <option value="file">file</option>
-                                                                  </select><input id="media" type="file" /><button onclick="upload()">Upload</button><input id="mediaid" type="text" /><br />
+                <select id="type2" name="type2">
+                    <option value="image" selected>image</option>
+                    <option value="video">video</option>
+                    <option value="voice">voice</option>
+                    <option value="file">file</option>
+                </select><input id="media" type="file" /><button onclick="upload()">Upload</button><input id="mediaid" type="text" /><br />
                 <label for="text1">Text</label><input id="text1" type="text" /><br />
                 <label for="type1">Type</label>
                 <select id="type1" name="type1">
@@ -297,6 +313,19 @@ function send1() {
                 <label for="attach1">Attachments</label><input id="attach1" type="text" value="[]" /><br />
                 <label for="mention1">Mentions</label><input id="mention1" type="text" value="[]" /><br />
                 <button onclick="send1()">Send1</button>
+            </div>
+            <div class="field-group">
+                <span class="field-group-title" style="font-weight: bold; color: #0076ff;">Forward Messages Test</span><br />
+
+                <label for="targetChatId">Target Chat ID:</label>
+                <input id="targetChatId" type="text" placeholder="UUID целевого чата" /><br />
+
+                <label for="forwardMessageIds">Message IDs (JSON):</label>
+                <input id="forwardMessageIds" type="text" placeholder="[123, 456]" style="width: 250px;" /><br />
+
+                <button onclick="forwardMessagesTest()" style="background-color: #0076ff; color: white; margin-top: 5px; padding: 5px 10px; border: none; cursor: pointer;">
+                    Execute ForwardMessages
+                </button>
             </div>
             <br />
             <div id="chats"></div>

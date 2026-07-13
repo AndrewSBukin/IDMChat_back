@@ -136,169 +136,6 @@ namespace IDMChat.Hubs
             await base.OnDisconnectedAsync(exception);
         }
 
-        /// <summary>
-        /// Отправить сообщение в чат
-        /// </summary>
-        /// <param name="conversationId">ID чата</param>
-        /// <param name="text">Текст сообщения</param>
-        /// <param name="tempId">Временный ID клиента для дедупликации</param>
-        /// <param name="replyToMessageId">ID сообщения, на которое отвечаем</param>
-        /// <param name="type">Тип сообщения: text, image, video, file, voice</param>
-        /// <param name="attachmentIds">Список ID загруженных файлов</param>
-        public async Task SendMessage0(Guid conversationId, string text, Guid tempId, long? replyToMessageId = null, string type = "text", List<Guid>? attachmentIds = null)
-        {
-            var userId = Context.GetUserId();
-            try
-            {
-                // 1. Дедупликация
-                var exists = await _db.Messages
-                    .AnyAsync(m => m.ConversationId == conversationId && m.ClientTempId == tempId);
-
-                if (exists)
-                {
-                    await Clients.Caller.SendAsync("message_duplicate", tempId);
-                    return;
-                }
-
-                // 2. Проверки из кэша
-                var chat = await _chatCache.GetConversationAsync(conversationId);
-
-                if (!chat.IsMember(userId))
-                    throw new HubException("NOT_MEMBER");
-
-                if (chat.IsWriteRestricted && !chat.IsAdmin(userId))
-                    throw new HubException("ONLY_ADMINS_CAN_WRITE");
-
-                // 3. Валидация параметров
-                var messageType = ParseMessageType(type);
-
-                object? replyToObj = null;
-                if (replyToMessageId.HasValue)
-                {
-                    var replyMessage = await _db.Messages
-                        .Include(m => m.Sender)
-                        .FirstOrDefaultAsync(m => m.Id == replyToMessageId
-                                                    && m.ConversationId == conversationId
-                                                    && !m.IsDeleted);
-                    if (replyMessage == null)
-                        throw new HubException("REPLY_TO_MESSAGE_NOT_FOUND");
-
-                    replyToObj = new
-                    {
-                        id = replyMessage.Id,
-                        sender_id = replyMessage.SenderId,
-                        sender_name = replyMessage.Sender.DisplayName,
-                        text = replyMessage.Text.Length > 100
-                                ? replyMessage.Text[..100] + "..."
-                                : replyMessage.Text,
-                        type = replyMessage.Type.ToString().ToLower()
-                    };
-                }
-
-                // 4. Создание сообщения
-                var message = new Message
-                {
-                    ClientTempId = tempId,
-                    ConversationId = conversationId,
-                    SenderId = userId,
-                    Text = text ?? string.Empty,
-                    Type = MessageType.Text,
-                    ReplyToMessageId = replyToMessageId,
-                    SentAt = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
-                    ChannelId = 0
-                };
-
-                // 5. Привязка вложений
-                if (attachmentIds != null && attachmentIds.Any())
-                {
-                    var attachments = await _db.FileAttachments.AsTracking()
-                        .Where(a => attachmentIds.Contains(a.Id) && a.UserId == userId)
-                        .ToListAsync();
-
-                    foreach (var attachment in attachments)
-                    {
-                        attachment.MessageId = message.Id;
-                    }
-                }
-
-                var truncatedText = (text ?? string.Empty).Length > 100 ? text[..100] + "..." : (text ?? string.Empty);
-
-                // 6. Сохранение в БД
-                _db.Messages.Add(message);
-
-                var conversation = await _db.Conversations.FindAsync(conversationId);
-                conversation.LastMessageId = message.Id;
-                conversation.LastMessageText = truncatedText;
-                conversation.LastMessageSenderId = userId;
-                conversation.LastMessageCreatedAt = message.CreatedAt;
-                conversation.UpdatedAt = message.CreatedAt;
-
-                var members = await _db.ConversationMembers
-                    .Where(cm => cm.ConversationId == conversationId && cm.UserId != userId)
-                    .ToListAsync();
-
-                foreach (var member in members)
-                    member.UnreadCount++;
-
-                await _db.SaveChangesAsync(); // message.Id заполняется
-
-                // 7. Обновление кэша
-                _chatCache.UpdateLastMessage(conversationId, message, truncatedText);
-                _chatCache.IncrementUnreadCounts(conversationId, userId);
-
-                // 8. Подтверждение отправителю
-                await Clients.Caller.SendAsync("message_confirmed", new { message_id = message.Id, temp_id = tempId });
-
-                // 9. Рассылка остальным
-                var messageDto = new
-                {
-                    message.Id,
-                    message.Text,
-                    sender_id = userId,
-                    created_at = message.CreatedAt,
-                    type = type,
-                    reply_to_id = replyToMessageId,
-                    reply_to = replyToObj,
-                    attachment_ids = attachmentIds
-                };
-
-                var onlineMembers = _userCache.GetOnlineMembers(chat.Members);
-
-                foreach (var memberId in onlineMembers.Where(m => m != userId))
-                {
-                    var connectionId = _userCache.GetConnectionId(memberId);
-                    if (connectionId != null)
-                    {
-                        // Отправляем сообщение получателю
-                        await Clients.Client(connectionId).SendAsync("message_new", new { conversation_id = conversationId, message = messageDto });
-
-                        // Уведомляем отправителя о доставке получателю
-                        await Clients.Caller.SendAsync("message_delivered", new
-                        {
-                            message_id = message.Id,
-                            user_id = memberId
-                        });
-
-                        // Обновляем счетчик непрочитанных у получателя
-                        var newUnreadCount = chat.GetUnreadCount(memberId);
-                        await Clients.Client(connectionId).SendAsync("unread_count_updated", new { conversation_id = conversationId, unread_count = newUnreadCount });
-                    }
-                }
-
-                _logger.LogDebug("Message {MessageId} sent to conversation {ConversationId} by {UserId}", message.Id, conversationId, userId);
-            }
-            catch (HubException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error sending message to {ConversationId} {message}", conversationId, ex.Message);
-                throw new HubException("MESSAGE_SEND_FAILED", ex);
-            }
-        }
-
         public class MentionItem
         {
             public Guid user_id { get; set; }
@@ -655,13 +492,215 @@ namespace IDMChat.Hubs
             }
         }
 
-        async Task<(string, string)> GetUserDisplayNameAndAvatar(Guid userId)
+        [HubMethodName("ForwardMessages")]
+        public async Task<List<MessageDto>> ForwardMessages(HubForwardMessagesDto dto)
         {
-            var user2 = await _db.Users
-                .Where(u => u.Id == userId)
-                .Select(u => new { u.DisplayName, u.AvatarUrl })
-                .FirstOrDefaultAsync();
-            return (user2.DisplayName, user2.AvatarUrl);
+            var currentUserId = Context.GetUserId();
+            var targetChatId = dto.target_conversation_id;
+
+            // 1. Валидация лимитов и соответствия массивов (Пункты 5.2 и требования фронта)
+            if (dto.message_ids == null || dto.message_ids.Count == 0)
+                throw new HubException("MESSAGE_IDS_EMPTY");
+
+            if (dto.message_ids.Count > 30)
+                throw new HubException("LIMIT_EXCEEDED_MAX_30");
+
+            if (dto.temp_ids == null || dto.temp_ids.Count != dto.message_ids.Count)
+                throw new HubException("TEMP_IDS_MISMATCH");
+
+            // 2. Проверка прав на целевой чат через ваш ChatStateCache (Пункт 5.5)
+            var targetChat = await _chatCache.GetConversationAsync(targetChatId);
+            if (targetChat == null)
+                throw new HubException("TARGET_CHAT_NOT_FOUND");
+
+            if (!targetChat.Members.Contains(currentUserId))
+                throw new HubException("NOT_A_CHAT_MEMBER");
+
+            if (targetChat.IsWriteRestricted && !targetChat.Admins.Contains(currentUserId))
+                throw new HubException("WRITE_RESTRICTED");
+
+            // 3. Загружаем оригинальные сообщения (и проверяем чаты-источники)
+            var originalMessages = await _db.Messages
+                .Include(m => m.FileAttachments)
+                .Include(m => m.Conversation) // Чтобы проверить флаг запрета пересылки в будущем
+                .Where(m => dto.message_ids.Contains(m.Id) && !m.IsDeleted)
+                .ToListAsync();
+
+            if (!originalMessages.Any())
+                throw new HubException("MESSAGES_NOT_FOUND");
+
+            // Сортируем строго в том порядке, в котором их прислал фронт (сохраняем хронологию)
+            var sortedOriginals = dto.message_ids
+                .Select(id => originalMessages.FirstOrDefault(m => m.Id == id))
+                .Where(m => m != null)
+                .ToList();
+
+            var newMessages = new List<Message>();
+            var newAttachments = new List<FileAttachment>();
+
+            // Карта для связи оригинального Message.Id -> temp_id от фронта
+            var idToTempMap = dto.message_ids
+                .Zip(dto.temp_ids, (id, tempId) => new { id, tempId })
+                .ToDictionary(x => x.id, x => x.tempId);
+
+            // Список для хранения созданных DTO, которые вернем в ответе метода
+            var resultDtos = new List<MessageDto>();
+
+            foreach (var orig in sortedOriginals)
+            {
+                // Валидация: Запрет пересылки системных сообщений (Пункт 5.4)
+                if (orig.Type == MessageType.System)
+                    throw new HubException("SYSTEM_MESSAGES_CANNOT_BE_FORWARDED");
+
+                // Валидация на будущее: Запрет пересылки из приватных каналов (Пункт 5.1)
+                // if (orig.Conversation.ForwardingDisabled) throw new HubException("FORWARDING_DISABLED_BY_SOURCE");
+
+                // Транзитивность (Пункт 4)
+                Guid originalSenderId = orig.IsForwarded && orig.OriginalSenderId.HasValue
+                    ? orig.OriginalSenderId.Value
+                    : orig.SenderId;
+
+                var newMessage = new Message
+                {
+                    SenderId = currentUserId,
+                    ConversationId = targetChatId,
+                    Text = orig.Text,
+                    Type = orig.Type,
+                    CreatedAt = DateTime.UtcNow,
+                    SentAt = DateTime.UtcNow,
+                    IsForwarded = true,
+                    OriginalSenderId = originalSenderId
+                    // Реакции, reply_to и read_count по умолчанию создаются пустыми/нулевыми (Пункт 5.3)
+                };
+
+                newMessages.Add(newMessage);
+
+                // Копируем вложения в БД (Пункт 3 - Вариант B)
+                if (orig.FileAttachments != null)
+                {
+                    foreach (var origAtt in orig.FileAttachments)
+                    {
+                        newAttachments.Add(new FileAttachment
+                        {
+                            Id = Guid.NewGuid(),
+                            Message = newMessage,
+                            ConversationId = targetChatId,
+                            UserId = currentUserId,
+                            FileName = origAtt.FileName,
+                            FileSize = origAtt.FileSize,
+                            MimeType = origAtt.MimeType,
+                            StoragePath = origAtt.StoragePath, // Тот же файл на диске
+                            ThumbnailPath = origAtt.ThumbnailPath,
+                            Duration = origAtt.Duration,
+                            Type = origAtt.Type,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+            }
+
+            // Сохраняем все в БД
+            _db.Messages.AddRange(newMessages);
+            if (newAttachments.Any()) _db.FileAttachments.AddRange(newAttachments);
+            await _db.SaveChangesAsync();
+
+            // 4. Обновляем денормализацию чата (БД + Кэш памяти)
+            var lastMessage = newMessages.Last();
+            string truncatedText = lastMessage.Text?.Length > 100 ? lastMessage.Text.Substring(0, 100) + "..." : lastMessage.Text ?? string.Empty;
+
+            await _db.Conversations
+                .Where(c => c.Id == targetChatId)
+                .ExecuteUpdateAsync(calls => calls
+                    .SetProperty(c => c.LastMessageId, lastMessage.Id)
+                    .SetProperty(c => c.LastMessageText, truncatedText)
+                    .SetProperty(c => c.LastMessageSenderId, lastMessage.SenderId)
+                    .SetProperty(c => c.LastMessageCreatedAt, lastMessage.CreatedAt)
+                    .SetProperty(c => c.UpdatedAt, DateTime.UtcNow)
+                );
+
+            _chatCache.UpdateLastMessage(targetChatId, lastMessage, truncatedText);
+
+            // 5. Маппинг в MessageDto и рассылка событий
+            var senderFromCache = _userCache.GetUser(currentUserId);
+
+            foreach (var message in newMessages)
+            {
+                var originalSenderFromCache = _userCache.GetUser(message.OriginalSenderId!.Value);
+
+                // Находим оригинальный ID сообщения, чтобы вытащить привязанный к нему temp_id
+                // (Так как порядок сохранился, мы можем сопоставить их по цепочке)
+                long origId = sortedOriginals[newMessages.IndexOf(message)].Id;
+                string currentTempId = idToTempMap[origId];
+
+                var attachmentsDto = message.FileAttachments?.Select(att => new AttachmentDto
+                {
+                    id = att.Id,
+                    file_name = att.FileName,
+                    file_size = att.FileSize,
+                    mime_type = att.MimeType,
+                    url = _urlResolver.ResolveUrl(att.StoragePath),
+                    thumbnail_url = _urlResolver.ResolveUrl(att.ThumbnailPath),
+                    duration = att.Duration,
+                    type = att.Type
+                }).ToList();
+
+                // Формируем DTO
+                var messagedto = new MessageDto
+                {
+                    id = message.Id,
+                    conversation_id = targetChatId,
+                    sender_id = currentUserId,
+                    type = message.Type.ToString().ToLower(),
+                    text = message.Text,
+                    created_at = message.CreatedAt,
+                    attachments = attachmentsDto ?? new List<AttachmentDto>(),
+
+                    reply_to = null,
+                    reply_to_id = null,
+                    mentions = new List<UserMention>(),
+                    read_count = 0,
+                    read_by = new List<UserBriefDto>(),
+                    is_edited = false,
+                    is_deleted = false,
+                    updated_at = null,
+
+                    sender = new UserBriefDto
+                    {
+                        id = currentUserId,
+                        display_name = senderFromCache?.DisplayName ?? "-",
+                        avatar_url = _urlResolver.ResolveUrl(senderFromCache?.AvatarUrl)
+                    },
+
+                    is_forwarded = true,
+                    forward_from = new UserBriefDto
+                    {
+                        id = message.OriginalSenderId.Value,
+                        display_name = originalSenderFromCache?.DisplayName ?? "Удаленный пользователь",
+                        avatar_url = _urlResolver.ResolveUrl(originalSenderFromCache?.AvatarUrl)
+                    }
+                };
+
+                resultDtos.Add(messagedto);
+
+                // Рассылаем обычное событие message_new в группу целевого чата (Требование фронта)
+                // Для инициатора прокидываем анонимный объект с temp_id, чтобы он мог сделать match
+                await Clients.Group(targetChatId.ToString()).SendAsync("message_new", new
+                {
+                    conversation_id = targetChatId,
+                    message = messagedto
+                });
+
+                // 2. Отправляем персональное подтверждение ТОЛЬКО автору запроса (Clients.Caller)
+                // Полностью повторяем ваш существующий механизм для бесшовной интеграции!
+                await Clients.Caller.SendAsync("message_confirmed", new
+                {
+                    message_id = message.Id,
+                    temp_id = currentTempId
+                });
+            }
+
+            // Возвращаем список созданных сообщений в ответе hub-метода
+            return resultDtos;
         }
 
         private MessageType ParseMessageType(string type)
