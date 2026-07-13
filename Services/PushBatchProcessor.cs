@@ -261,7 +261,7 @@ namespace IDMChat.Services
                     // мы используем SendAllAsync. Он возвращает BatchResponse, где порядок результатов совпадает с порядком сообщений.
                     foreach (var chunk in fcmMessagesToSend.Chunk(500))
                     {
-                        BatchResponse batchResponse = await messagingInstance.SendAllAsync(chunk, ct);
+                        BatchResponse batchResponse = await messagingInstance.SendEachAsync(chunk, ct);
                         bool needsDbSave = false;
 
                         for (int i = 0; i < batchResponse.Responses.Count; i++)
