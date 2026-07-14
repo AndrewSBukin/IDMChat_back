@@ -4,6 +4,7 @@ using FFMpegCore.Enums;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using IDMChat.Domain;
+using IDMChat.DTO;
 using IDMChat.Hubs;
 using IDMChat.Middleware;
 //using IDMChat.Middleware;
@@ -156,6 +157,8 @@ namespace IDMChat
 
             builder.Services.AddSingleton<IBackgroundPushQueue, BackgroundPushQueue>();
             builder.Services.AddHostedService<PushBatchProcessor>(); // background writer
+
+            //builder.Services.AddSingleton<IMessageDtoMapper, MessageDtoMapper>();
 
             builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
             {

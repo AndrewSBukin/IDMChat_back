@@ -33,6 +33,11 @@ namespace IDMChat.Models
             modelBuilder.Entity<MessageReaction>()
                 .Property(r => r.Emoji)
                 .UseCollation("Latin1_General_BIN2");
+
+            modelBuilder.Entity<Message>()
+                .HasIndex(m => new { m.ConversationId, m.IsPinned, m.PinnedAt })
+                .HasDatabaseName("IX_Messages_Conversation_Pinned")
+                .HasFilter("[IsPinned] = 1");
         }
     }
 }

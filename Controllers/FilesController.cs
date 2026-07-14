@@ -195,6 +195,146 @@ namespace IDMChat.Controllers
             });
         }
 
+        [HttpPost("upload-multiple")] // Меняем роут, чтобы не ломать старый метод, либо заменяем его
+        public async Task<ActionResult<UploadMultipleFilesResponse>> UploadMultipleFiles(
+            List<IFormFile> files, // Принимаем коллекцию файлов
+            [FromForm][Required] string type,
+            [FromForm] Guid? conversationId = null,
+            [FromForm] List<string>? waveforms = null, // Массив строк-JSON вевйвформов в порядке файлов
+            CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+            var response = new UploadMultipleFilesResponse();
+
+            // 1. Проверка общего типа для всей пачки
+            if (!Enum.TryParse<FileType>(type, true, out var fileType))
+                return UnprocessableEntity(new { error = new { code = "INVALID_FORMAT", message = $"Неверный тип: {type}" } });
+
+            // 2. Проверка наличия файлов
+            if (files == null || files.Count == 0)
+                return BadRequest(new { error = new { code = "FILES_REQUIRED", message = "Не прикреплено ни одного файла" } });
+
+            // 3. Быстрая проверка лимитов до начала записи на диск (например, суммарный размер не более 300MB)
+            const long maxSingleFileSize = 100 * 1024 * 1024;
+            if (files.Any(f => f.Length > maxSingleFileSize))
+                return UnprocessableEntity(new { error = new { code = "FILE_TOO_LARGE", message = "Один или несколько файлов превышают 100MB" } });
+
+            var datePath = DateTime.UtcNow.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture);
+            var uploadsDir = Path.Combine(_storageBasePath, "files", datePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(uploadsDir);
+
+            var attachmentsToAdd = new List<FileAttachment>();
+
+            // 4. Поочередно обрабатываем каждый файл в цикле
+            for (int i = 0; i < files.Count; i++)
+            {
+                var file = files[i];
+                if (file.Length == 0) continue;
+
+                // --- ВАЛИДАЦИЯ WAVEFORM ДЛЯ КОНКРЕТНОГО ФАЙЛА ---
+                string? validatedWaveformJson = null;
+                List<double>? validatedWaveformList = null;
+
+                // Достаем вейвформ, соответствующий текущему файлу по индексу
+                string? rawWaveform = waveforms != null && i < waveforms.Count ? waveforms[i] : null;
+
+                if (!string.IsNullOrWhiteSpace(rawWaveform))
+                {
+                    try
+                    {
+                        var rawList = JsonSerializer.Deserialize<List<double>>(rawWaveform);
+                        if (rawList != null && rawList.Count <= 64 && rawList.All(v => v >= 0.0 && v <= 1.0))
+                        {
+                            validatedWaveformList = rawList;
+                            validatedWaveformJson = JsonSerializer.Serialize(rawList);
+                        }
+                    }
+                    catch (JsonException) { /* Игнорируем мусор по ТЗ */ }
+                }
+
+                // --- ПОДГОТОВКА ПУТЕЙ И ИМЕН ---
+                var fileId = Guid.NewGuid();
+                var originalExtension = Path.GetExtension(file.FileName);
+                var fileName = $"{fileId}{originalExtension}";
+                var thumbFileName = $"{fileId}_thumb.jpg";
+
+                var filePath = Path.Combine(uploadsDir, fileName);
+                var thumbPath = Path.Combine(uploadsDir, thumbFileName);
+
+                // Сохраняем физический файл на диск
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream, ct);
+                }
+
+                // --- ГЕНЕРАЦИЯ МИНИАТЮР / МЕТАДАННЫХ ---
+                bool hasThumbnail = false;
+                int? duration = null;
+
+                if (fileType == FileType.Image)
+                {
+                    await GenerateImageThumbnailWithFfmpeg(filePath, thumbPath, 200, 200);
+                    hasThumbnail = true;
+                }
+                else if (fileType == FileType.Video)
+                {
+                    var mediaInfo = await FFProbe.AnalyseAsync(filePath);
+                    duration = (int)mediaInfo.Duration.TotalSeconds;
+                    int ts = duration < 10 ? (int)duration / 2 : 5;
+
+                    await GenerateVideoThumbnailAsync(filePath, thumbPath, TimeSpan.FromSeconds(ts));
+                    hasThumbnail = true;
+                }
+                else if (fileType == FileType.Voice)
+                {
+                    duration = await GetAudioDuration(filePath);
+                }
+
+                var storageRelativePath = $"files/{datePath}/{fileName}";
+                var thumbnailRelativePath = hasThumbnail ? $"files/{datePath}/{thumbFileName}" : null;
+
+                // Создаем сущность для БД, но пока НЕ сохраняем
+                var attachment = new FileAttachment
+                {
+                    Id = fileId,
+                    UserId = userId,
+                    ConversationId = conversationId ?? Guid.Empty,
+                    FileName = file.FileName,
+                    FileSize = file.Length,
+                    MimeType = file.ContentType,
+                    StoragePath = storageRelativePath,
+                    ThumbnailPath = thumbnailRelativePath,
+                    Type = fileType,
+                    Duration = duration,
+                    CreatedAt = DateTime.UtcNow,
+                    WaveformJson = validatedWaveformJson
+                };
+
+                attachmentsToAdd.Add(attachment);
+
+                // Добавляем элемент в общий DTO-ответ
+                response.files.Add(new UploadFileResponse
+                {
+                    Id = fileId,
+                    FileName = file.FileName,
+                    FileSize = file.Length,
+                    MimeType = file.ContentType,
+                    Url = _urlResolver.ResolveUrl(storageRelativePath),
+                    ThumbnailUrl = _urlResolver.ResolveUrl(thumbnailRelativePath),
+                    Duration = duration,
+                    waveform = validatedWaveformList
+                });
+            }
+
+            // 5. Сохраняем ВСЕ записи вложений в базу данных одним махом
+            if (attachmentsToAdd.Any())
+            {
+                _db.FileAttachments.AddRange(attachmentsToAdd);
+                await _db.SaveChangesAsync(ct);
+            }
+
+            return Ok(response);
+        }
         private string? ValidateAndSerializeWaveform(string? rawJson)
         {
             if (string.IsNullOrWhiteSpace(rawJson)) return null;

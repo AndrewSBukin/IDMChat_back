@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using FirebaseAdmin.Messaging;
 using IDMChat.Domain;
 using IDMChat.DTO;
 using IDMChat.Hubs;
@@ -22,6 +23,7 @@ using System.Text.RegularExpressions;
 using static IDMChat.Controllers.ConversationsController;
 using static IDMChat.Controllers.FilesController;
 using static System.Net.WebRequestMethods;
+using Message = IDMChat.Models.Message;
 
 namespace IDMChat.Controllers
 {
@@ -1941,6 +1943,432 @@ namespace IDMChat.Controllers
             return Ok(reactionsGrouped);
         }
         #endregion
+
+        #region PinMessage
+        [HttpPost("{conversationId}/pinned-messages")]
+        [Authorize]
+        public async Task<IActionResult> PinMessage(Guid conversationId, [FromBody] PinMessageRequestDto dto, CancellationToken ct = default)
+        {
+            var currentUserId = HttpContext.GetCurrentUserId();
+
+            // 1. Проверяем права пользователя через ваш ChatStateCache (Пункт 11.1 -> 403 Forbidden)
+            var cachedChat = await _chatCache.GetConversationAsync(conversationId);
+            if (cachedChat == null || !cachedChat.Members.Contains(currentUserId))
+                return Forbid();
+
+            // Если это группа (не личная переписка) и включены ограничения, закреплять могут только админы
+            if (cachedChat.Type == ConversationType.group && !cachedChat.Admins.Contains(currentUserId))
+                return Forbid(); // 403 Forbidden
+
+            // 2. Находим сообщение
+            var message = await _db.Messages.AsTracking()
+                .FirstOrDefaultAsync(m => m.Id == dto.messageId && m.ConversationId == conversationId && !m.IsDeleted);
+
+            if (message == null) return NotFound("Сообщение не найдено");
+
+            // 3. Обновляем статус закрепления
+            message.IsPinned = true;
+            message.PinnedByUserId = currentUserId;
+            message.PinnedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+
+            // 4. Маппим в MessageDto (Здесь используйте ваш стандартный метод сборки DTO)
+            var messageDto = await MapToMessageDto(message, currentUserId, ct); // С проставленными is_pinned, pinned_by, pinned_at
+
+            // 5. Рассылаем SignalR событие MessagePinned (Пункт 11.5)
+            await _hubContext.Clients.Group(conversationId.ToString()).SendAsync("MessagePinned", new
+            {
+                conversationId = conversationId,
+                message = messageDto
+            });
+
+            return Ok(messageDto);
+        }
+
+        [HttpDelete("{conversationId}/pinned-messages/{messageId}")]
+        [Authorize]
+        public async Task<IActionResult> UnpinMessage(Guid conversationId, long messageId)
+        {
+            var currentUserId = HttpContext.GetCurrentUserId();
+
+            // Проверка прав
+            var cachedChat = await _chatCache.GetConversationAsync(conversationId);
+            if (cachedChat == null || !cachedChat.Members.Contains(currentUserId))
+                return Forbid();
+
+            if (cachedChat.Type == ConversationType.group && !cachedChat.Admins.Contains(currentUserId))
+                return Forbid();
+
+            // Находим сообщение
+            var message = await _db.Messages.AsTracking()
+                .FirstOrDefaultAsync(m => m.Id == messageId && m.ConversationId == conversationId && !m.IsDeleted);
+
+            if (message == null) return NotFound();
+
+            // Сбрасываем поля
+            message.IsPinned = false;
+            message.PinnedByUserId = null;
+            message.PinnedAt = null;
+
+            await _db.SaveChangesAsync();
+
+            // Рассылаем SignalR событие MessageUnpinned (Пункт 11.5)
+            await _hubContext.Clients.Group(conversationId.ToString()).SendAsync("MessageUnpinned", new
+            {
+                conversationId = conversationId,
+                messageId = messageId
+            });
+
+            return NoContent(); // 204 No Content по ТЗ
+        }
+
+        [HttpGet("{conversationId}/pinned-messages")]
+        [Authorize]
+        public async Task<IActionResult> GetPinnedMessages(Guid conversationId, CancellationToken ct = default)
+        {
+            var currentUserId = HttpContext.GetCurrentUserId();
+
+            // Проверка прав на чтение чата
+            var cachedChat = await _chatCache.GetConversationAsync(conversationId);
+            if (cachedChat == null || !cachedChat.Members.Contains(currentUserId))
+                return Forbid();
+
+            // Вытаскиваем закрепы: от новых к старым (Пункт 11.3)
+            var messages = await _db.Messages
+                .Where(m => m.ConversationId == conversationId && m.IsPinned && !m.IsDeleted)
+                .OrderByDescending(m => m.PinnedAt) // Сортировка по дате закрепа по ТЗ
+                .Select(m => new
+                {
+                    m.Id,
+                    m.ConversationId,
+                    m.SenderId,
+                    m.Sender,
+                    m.Type,
+                    m.Text,
+                    m.UpdatedAt,
+                    m.IsDeleted,
+                    m.CreatedAt,
+                    m.ReplyToMessageId,
+                    m.IsForwarded,
+                    m.OriginalSenderId,
+                    reactions = m.Reactions
+                        .GroupBy(r => r.Emoji)
+                        .Select(g => new ReactionGroupDto
+                        {
+                            emoji = g.Key,
+                            count = g.Count(),
+                            userIds = g.Select(r => r.UserId).ToList(),
+                            isMine = g.Any(r => r.UserId == currentUserId)
+                        }).ToList()
+                })
+                .ToListAsync();
+
+            var messageIds = messages.Select(m => m.Id).ToList();
+
+            var mentionsMap = new Dictionary<long, List<UserMention>>();
+            if (messageIds.Any())
+            {
+                var dbMentions = await _db.MessageMentions
+                    .Where(mm => messageIds.Contains(mm.MessageId))
+                    .Select(mm => new { mm.MessageId, mm.UserId })
+                    .ToListAsync(ct);
+
+                mentionsMap = dbMentions
+                    .GroupBy(mm => mm.MessageId)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.Select(mm => new UserMention
+                        {
+                            user_id = mm.UserId,
+                            display_name = _userCache.GetDisplayName(mm.UserId)
+                        }).ToList()
+                    );
+            }
+
+            var replyToIds = messages
+                .Where(m => m.ReplyToMessageId.HasValue)
+                .Select(m => m.ReplyToMessageId.Value)
+                .Distinct()
+                .ToList();
+            var replyMessages = new Dictionary<long, ReplyPreviewDto>();
+            if (replyToIds.Any())
+            {
+                var replies = await _db.Messages
+                    .Where(m => replyToIds.Contains(m.Id) && !m.IsDeleted)
+                    .Select(m => new ReplyPreviewDto
+                    {
+                        id = m.Id,
+                        sender_id = m.SenderId,
+                        sender_name = _userCache.GetDisplayName(m.SenderId),
+                        text = m.Text.Length > 100 ? m.Text.Substring(0, 100) + "..." : m.Text,
+                        type = m.Type.ToString().ToLower(),
+                        attachments = m.FileAttachments.Select(a => new AttachmentDto
+                        {
+                            id = a.Id,
+                            file_name = a.FileName,
+                            file_size = a.FileSize,
+                            mime_type = a.MimeType,
+                            url = _urlResolver.ResolveUrl(a.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
+                        }).ToList()
+                    })
+                    .ToListAsync(ct);
+
+                replyMessages = replies.ToDictionary(r => r.id);
+            }
+
+            // Attachments
+            var attachments = new Dictionary<long, List<AttachmentDto>>();
+            if (messageIds.Any())
+            {
+                var rawAttachments = await _db.FileAttachments
+                    .Where(f => f.MessageId.HasValue && messageIds.Contains(f.MessageId.Value) && f.MessageId != 0)
+                    .Select(f => new
+                    {
+                        f.MessageId,
+                        f.Id,
+                        f.FileName,
+                        f.FileSize,
+                        f.MimeType,
+                        f.StoragePath,
+                        f.ThumbnailPath,
+                        f.Duration,
+                        f.Type,
+                        f.WaveformJson
+                    })
+                    .ToListAsync(ct);
+
+                var fileAttachments = rawAttachments
+                    .Select(f => new
+                    {
+                        f.MessageId,
+                        Attachment = new AttachmentDto
+                        {
+                            id = f.Id,
+                            file_name = f.FileName,
+                            file_size = f.FileSize,
+                            mime_type = f.MimeType,
+                            url = _urlResolver.ResolveUrl(f.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath),
+                            duration = f.Duration,
+                            type = f.Type,
+                            waveform = !string.IsNullOrEmpty(f.WaveformJson)
+                                ? JsonSerializer.Deserialize<List<double>>(f.WaveformJson)
+                                : null
+                        }
+                    })
+                    .ToList();
+
+                attachments = fileAttachments
+                    .GroupBy(f => f.MessageId.Value)
+                    .ToDictionary(g => g.Key, g => g.Select(f => f.Attachment).ToList());
+            }
+
+
+
+            // ReadCount + ReadBy
+            var readCounts = await _db.MessageReadReceipts
+                .Where(r => messageIds.Contains(r.MessageId))
+                .GroupBy(r => r.MessageId)
+                .Select(g => new { MessageId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.MessageId, g => g.Count, ct);
+
+            var memberCount = cachedChat.Members.Count;
+            var needFullReadBy = cachedChat.Type == ConversationType.direct || memberCount <= 5;
+            Dictionary<long, List<UserBriefDto>>? readByMap = null;
+            if (needFullReadBy && messageIds.Any())
+            {
+                var readByData = await _db.MessageReadReceipts
+                    .Where(r => messageIds.Contains(r.MessageId))
+                    .Select(r => new
+                    {
+                        r.MessageId,
+                        User = new UserBriefDto
+                        {
+                            id = r.UserId,
+                            display_name = _userCache.GetDisplayName(r.UserId),
+                            avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(r.UserId).AvatarUrl)
+                        }
+                    })
+                    .ToListAsync(ct);
+
+                readByMap = readByData
+                    .GroupBy(r => r.MessageId)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.Select(r => r.User).ToList());
+            }
+
+            var messageDtos = messages.Select(m => new MessageDto
+            {
+                id = m.Id,
+                conversation_id = m.ConversationId,
+                sender_id = m.SenderId,
+                sender = new UserBriefDto
+                {
+                    id = m.SenderId,
+                    display_name = _userCache.GetDisplayName(m.SenderId),
+                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.SenderId).AvatarUrl)
+                },
+                type = m.Type.ToString().ToLower(),
+                text = m.Text,
+                is_edited = m.UpdatedAt.HasValue,
+                is_deleted = m.IsDeleted,
+                created_at = m.CreatedAt,
+                updated_at = m.UpdatedAt,
+                attachments = attachments.GetValueOrDefault(m.Id) ?? new List<AttachmentDto>(),
+                reply_to_id = m.ReplyToMessageId,
+                reply_to = m.ReplyToMessageId.HasValue && replyMessages.TryGetValue(m.ReplyToMessageId.Value, out var reply) ? reply : null,
+                read_count = readCounts.GetValueOrDefault(m.Id, 0),
+                read_by = needFullReadBy && readByMap != null && readByMap.ContainsKey(m.Id)
+                    ? readByMap[m.Id]
+                    : null,
+                mentions = mentionsMap.GetValueOrDefault(m.Id) ?? new List<UserMention>(),
+                is_forwarded = m.IsForwarded,
+                forward_from = m.OriginalSenderId.HasValue ?
+                    new UserBriefDto()
+                    {
+                        id = m.OriginalSenderId.Value,
+                        display_name = _userCache.GetDisplayName(m.OriginalSenderId.Value),
+                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl)
+                    }
+                    : null,
+                reactions = m.reactions
+            }).ToList();
+
+            return Ok(messageDtos);
+        }
+        #endregion
+
+
+        private async Task<MessageDto> MapToMessageDto(Message m, Guid currentUserId, CancellationToken ct)
+        {
+            var reactions = await _db.Messages
+                .Select(msg => msg.Reactions
+                        .GroupBy(r => r.Emoji)
+                        .Select(g => new ReactionGroupDto
+                        {
+                            emoji = g.Key,
+                            count = g.Count(),
+                            userIds = g.Select(r => r.UserId).ToList(),
+                            isMine = g.Any(r => r.UserId == currentUserId)
+                        }).ToList()
+                )
+                .FirstOrDefaultAsync(msg => m.Id == m.Id, ct);
+
+            // 2. Загружаем упоминания (Mentions) для этого сообщения
+            var mentionsList = await _db.MessageMentions
+                .Where(mm => mm.MessageId == m.Id)
+                .Select(mm => new UserMention
+                {
+                    user_id = mm.UserId,
+                    display_name = _userCache.GetDisplayName(mm.UserId)
+                })
+                .ToListAsync(ct);
+
+            ReplyPreviewDto? replyPreview = null;
+            if (m.ReplyToMessageId.HasValue)
+            {
+                replyPreview = await _db.Messages
+                    .Where(msg => msg.Id == m.ReplyToMessageId.Value && !msg.IsDeleted)
+                    .Select(msg => new ReplyPreviewDto
+                    {
+                        id = msg.Id,
+                        sender_id = msg.SenderId,
+                        sender_name = _userCache.GetDisplayName(msg.SenderId),
+                        text = msg.Text.Length > 100 ? msg.Text.Substring(0, 100) + "..." : msg.Text,
+                        type = msg.Type.ToString().ToLower(),
+                        attachments = msg.FileAttachments.Select(a => new AttachmentDto
+                        {
+                            id = a.Id,
+                            file_name = a.FileName,
+                            file_size = a.FileSize,
+                            mime_type = a.MimeType,
+                            url = _urlResolver.ResolveUrl(a.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
+                        }).ToList()
+                    })
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            var rawAttachments = await _db.FileAttachments
+                .Where(f => f.MessageId == m.Id && f.MessageId != 0)
+                .Select(f => new { f.Id, f.FileName, f.FileSize, f.MimeType, f.StoragePath, f.ThumbnailPath, f.Duration, f.Type, f.WaveformJson })
+                .ToListAsync(ct);
+
+            var attachmentsList = rawAttachments.Select(f => new AttachmentDto
+            {
+                id = f.Id,
+                file_name = f.FileName,
+                file_size = f.FileSize,
+                mime_type = f.MimeType,
+                url = _urlResolver.ResolveUrl(f.StoragePath),
+                thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath),
+                duration = f.Duration,
+                type = f.Type,
+                waveform = !string.IsNullOrEmpty(f.WaveformJson) ? System.Text.Json.JsonSerializer.Deserialize<List<double>>(f.WaveformJson) : null
+            }).ToList();
+
+            var readCount = await _db.MessageReadReceipts.CountAsync(r => r.MessageId == m.Id, ct);
+            var cachedChat = await _chatCache.GetConversationAsync(m.ConversationId);
+            var memberCount = cachedChat.Members.Count; // Берем из кэша чата, полученного в начале метода
+            var needFullReadBy = cachedChat.Type == ConversationType.direct || memberCount <= 5;
+
+            List<UserBriefDto>? readByList = null;
+            if (needFullReadBy)
+            {
+                readByList = await _db.MessageReadReceipts
+                    .Where(r => r.MessageId == m.Id)
+                    .Select(r => new UserBriefDto
+                    {
+                        id = r.UserId,
+                        display_name = _userCache.GetDisplayName(r.UserId),
+                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(r.UserId).AvatarUrl)
+                    })
+                    .ToListAsync(ct);
+            }
+
+            var messageDto = new MessageDto
+            {
+                id = m.Id,
+                conversation_id = m.ConversationId,
+                sender_id = m.SenderId,
+                sender = new UserBriefDto
+                {
+                    id = m.SenderId,
+                    display_name = _userCache.GetDisplayName(m.SenderId),
+                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.SenderId).AvatarUrl)
+                },
+                type = m.Type.ToString().ToLower(),
+                text = m.Text,
+                is_edited = m.UpdatedAt.HasValue,
+                is_deleted = m.IsDeleted,
+                created_at = m.CreatedAt,
+                updated_at = m.UpdatedAt,
+                attachments = attachmentsList,
+                reply_to_id = m.ReplyToMessageId,
+                reply_to = replyPreview,
+                read_count = readCount,
+                read_by = readByList,
+                mentions = mentionsList,
+                is_forwarded = m.IsForwarded,
+                forward_from = m.OriginalSenderId.HasValue ? new UserBriefDto
+                {
+                    id = m.OriginalSenderId.Value,
+                    display_name = _userCache.GetDisplayName(m.OriginalSenderId.Value),
+                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl)
+                } : null,
+                reactions = reactions,
+
+                // Прокидываем новые свойства закрепа, чтобы фронт зафиксировал изменения
+                is_pinned = m.IsPinned,
+                pinned_by = m.PinnedByUserId,
+                pinned_at = m.PinnedAt
+            };
+
+            return messageDto;
+        }
 
         #region Media
         [HttpGet("{id}/media")]

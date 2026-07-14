@@ -62,6 +62,10 @@ namespace IDMChat.Models
         public bool IsForwarded { get; set; }
         public Guid? OriginalSenderId { get; set; }
 
+        public bool IsPinned { get; set; }
+        public Guid? PinnedByUserId { get; set; }
+        public DateTime? PinnedAt { get; set; }
+
         /// //////////////////////////////////////////////////////////////////////////
 
         [ForeignKey(nameof(ReplyToMessageId))]
@@ -77,6 +81,8 @@ namespace IDMChat.Models
 
         public User OriginalSender { get; set; }
         public List<MessageReaction> Reactions { get; set; } = new List<MessageReaction>();
+
+        public User? PinnedByUser { get; set; }
     }
 
     public enum MessageType

@@ -305,7 +305,13 @@ namespace IDMChat.DTO
         public List<UserMention> mentions { get; set; } = new List<UserMention>();
 
         public List<ReactionGroupDto> reactions { get; set; } = new();
+
+        public bool is_pinned { get; set; }
+        public Guid? pinned_by { get; set; }
+        public DateTime? pinned_at { get; set; }
     }
+
+    public record PinMessageRequestDto(long messageId);
 
     public class AttachmentDto
     {
@@ -355,6 +361,10 @@ namespace IDMChat.DTO
         public string? ThumbnailUrl { get; set; }
         public int? Duration { get; set; }
         public List<double>? waveform { get; set; }
+    }
+    public class UploadMultipleFilesResponse
+    {
+        public List<UploadFileResponse> files { get; set; } = new();
     }
 
     public record ForwardMessagesDto(
