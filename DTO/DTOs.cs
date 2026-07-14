@@ -317,6 +317,7 @@ namespace IDMChat.DTO
         public string? thumbnail_url { get; set; }
         public int? duration { get; set; }
         public FilesController.FileType type { get; set; }
+        public List<double>? waveform { get; set; }
     }
     public class ConversationUpdatedDto
     {
@@ -353,6 +354,7 @@ namespace IDMChat.DTO
         public string Url { get; set; } = string.Empty;
         public string? ThumbnailUrl { get; set; }
         public int? Duration { get; set; }
+        public List<double>? waveform { get; set; }
     }
 
     public record ForwardMessagesDto(

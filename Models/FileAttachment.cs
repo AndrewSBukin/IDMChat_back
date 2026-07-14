@@ -40,6 +40,10 @@ namespace IDMChat.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+        [MaxLength(500)]
+        [Column(TypeName = "nvarchar(500)")]
+        public string? WaveformJson { get; set; }
+
         // Навигация
         [ForeignKey(nameof(UserId))]
         public User User { get; set; } = null!;

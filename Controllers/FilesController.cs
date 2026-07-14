@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
+using System.Text.Json;
 
 namespace IDMChat.Controllers
 {
@@ -72,7 +73,7 @@ namespace IDMChat.Controllers
         }
 
         [HttpPost("upload")]
-        public async Task<ActionResult<UploadFileResponse>> UploadFile(IFormFile file, [FromForm][Required] string type, [FromForm] Guid? conversationId = null, CancellationToken ct = default)
+        public async Task<ActionResult<UploadFileResponse>> UploadFile(IFormFile file, [FromForm][Required] string type, [FromForm] Guid? conversationId = null, [FromForm] string? waveform = null, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
 
@@ -88,6 +89,30 @@ namespace IDMChat.Controllers
             const long maxFileSize = 100 * 1024 * 1024;
             if (file.Length > maxFileSize)
                 return UnprocessableEntity(new { error = new { code = "FILE_TOO_LARGE", message = "Файл превышает 100MB" } });
+
+            // --- ВАЛИДАЦИЯ WAVEFORM 
+            string? validatedWaveformJson = null;
+            List<double>? validatedWaveformList = null;
+            if (!string.IsNullOrWhiteSpace(waveform))
+            {
+                try
+                {
+                    // Пытаемся распарсить строку в JSON-массив чисел
+                    var rawList = JsonSerializer.Deserialize<List<double>>(waveform);
+
+                    // Проверяем условия из ТЗ: длина <= 64 и значения строго в диапазоне [0, 1]
+                    if (rawList != null && rawList.Count <= 64 && rawList.All(v => v >= 0.0 && v <= 1.0))
+                    {
+                        validatedWaveformList = rawList;
+                        // Сохраняем в максимально компактную строку для базы данных
+                        validatedWaveformJson = JsonSerializer.Serialize(rawList);
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Если прилетел мусор или некорректный формат — по ТЗ мягко игнорируем, не падая
+                }
+            }
 
             var fileId = Guid.NewGuid();
             var originalExtension = Path.GetExtension(file.FileName);
@@ -144,7 +169,8 @@ namespace IDMChat.Controllers
                 ThumbnailPath = thumbnailRelativePath,
                 Type = fileType,
                 Duration = duration,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                WaveformJson = validatedWaveformJson
             };
 
             if (fileType == FileType.Voice)
@@ -164,8 +190,34 @@ namespace IDMChat.Controllers
                 MimeType = file.ContentType,
                 Url = _urlResolver.ResolveUrl(storageRelativePath),
                 ThumbnailUrl = _urlResolver.ResolveUrl(thumbnailRelativePath),
-                Duration = duration
+                Duration = duration,
+                waveform = validatedWaveformList
             });
+        }
+
+        private string? ValidateAndSerializeWaveform(string? rawJson)
+        {
+            if (string.IsNullOrWhiteSpace(rawJson)) return null;
+
+            try
+            {
+                // Пытаемся распарсить строку в список чисел
+                var list = JsonSerializer.Deserialize<List<double>>(rawJson);
+
+                if (list == null) return null;
+
+                // Валидация требований: длина <= 64, все значения строго в диапазоне [0, 1]
+                if (list.Count > 64) return null;
+                if (list.Any(val => val < 0.0 || val > 1.0)) return null;
+
+                // Если валидация пройдена, сериализуем обратно в компактную строку для БД
+                return JsonSerializer.Serialize(list);
+            }
+            catch (JsonException)
+            {
+                // Если прилетел невалидный JSON или мусор — мягко игнорируем по ТЗ
+                return null;
+            }
         }
 
         private async Task<int> GetAudioDuration(string filePath)

@@ -17,6 +17,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Net.Mail;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using static IDMChat.Controllers.ConversationsController;
 using static IDMChat.Controllers.FilesController;
@@ -980,8 +981,24 @@ namespace IDMChat.Controllers
             var attachments = new Dictionary<long, List<AttachmentDto>>();
             if (messageIds.Any())
             {
-                var fileAttachments = await _db.FileAttachments
+                var rawAttachments = await _db.FileAttachments
                     .Where(f => f.MessageId.HasValue && messageIds.Contains(f.MessageId.Value) && f.MessageId != 0)
+                    .Select(f => new
+                    {
+                        f.MessageId,
+                        f.Id,
+                        f.FileName,
+                        f.FileSize,
+                        f.MimeType,
+                        f.StoragePath,
+                        f.ThumbnailPath,
+                        f.Duration,
+                        f.Type,
+                        f.WaveformJson
+                    })
+                    .ToListAsync(ct);
+
+                var fileAttachments = rawAttachments
                     .Select(f => new
                     {
                         f.MessageId,
@@ -994,10 +1011,13 @@ namespace IDMChat.Controllers
                             url = _urlResolver.ResolveUrl(f.StoragePath),
                             thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath), 
                             duration = f.Duration, 
-                            type = f.Type
+                            type = f.Type, 
+                            waveform = !string.IsNullOrEmpty(f.WaveformJson)
+                                ? JsonSerializer.Deserialize<List<double>>(f.WaveformJson)
+                                : null
                         }
                     })
-                    .ToListAsync(ct);
+                    .ToList();
 
                 attachments = fileAttachments
                     .GroupBy(f => f.MessageId.Value)
@@ -1759,7 +1779,10 @@ namespace IDMChat.Controllers
                     url = _urlResolver.ResolveUrl(att.StoragePath),
                     thumbnail_url = _urlResolver.ResolveUrl(att.ThumbnailPath),
                     duration = att.Duration,
-                    type = att.Type
+                    type = att.Type, 
+                    waveform = !string.IsNullOrEmpty(att.WaveformJson)
+                        ? JsonSerializer.Deserialize<List<double>>(att.WaveformJson)
+                        : null
                 }).ToList();
 
                 var dto = new MessageDto

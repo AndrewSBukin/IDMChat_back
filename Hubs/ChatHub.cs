@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Net.Mail;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
@@ -641,7 +642,10 @@ namespace IDMChat.Hubs
                     url = _urlResolver.ResolveUrl(att.StoragePath),
                     thumbnail_url = _urlResolver.ResolveUrl(att.ThumbnailPath),
                     duration = att.Duration,
-                    type = att.Type
+                    type = att.Type, 
+                    waveform = !string.IsNullOrEmpty(att.WaveformJson)
+                        ? JsonSerializer.Deserialize<List<double>>(att.WaveformJson)
+                        : null
                 }).ToList();
 
                 // Формируем DTO
@@ -696,6 +700,48 @@ namespace IDMChat.Hubs
                 {
                     message_id = message.Id,
                     temp_id = currentTempId
+                });
+            }
+
+            // Push message
+            var allMembers = targetChat.Members;
+            var pushRecipients = allMembers.Where(userId => userId != currentUserId).ToList();
+            if (pushRecipients.Any())
+            {
+                var lastForwardedMessage = newMessages.Last();
+
+                string pushText = newMessages.Count == 1
+                    ? (lastForwardedMessage.Type == MessageType.Text
+                        ? $"Пересланное сообщение: {lastForwardedMessage.Text}"
+                        : $"Переслал(а) вложение [{lastForwardedMessage.Type}]")
+                    : $"Переслал(а) {newMessages.Count} сообщений";
+
+                string finalMessageType;
+                if (newMessages.Count == 1)
+                {
+                    finalMessageType = lastForwardedMessage.Type.ToString().ToLower();
+                }
+                else
+                {
+                    // Проверяем, одинаковый ли тип у ВСЕХ пересылаемых сообщений в пачке
+                    var firstType = newMessages.First().Type;
+                    bool allSameType = newMessages.All(m => m.Type == firstType);
+
+                    // Если все сообщения одного типа (например, все картинки) — сохраняем этот тип.
+                    // Если типы разные (микс из текста и файлов) — ставим "text", так как пуш будет просто строкой текста.
+                    finalMessageType = allSameType ? firstType.ToString().ToLower() : "text";
+                }
+
+                _backgroundPushQueue.Enqueue(new PushNotificationTask
+                {
+                    ConversationId = targetChatId,
+                    SenderId = currentUserId,
+                    MessageText = pushText, // Передаем адаптированный под форвард текст
+                    MessageType = finalMessageType,
+                    MessageId = lastForwardedMessage.Id,
+
+                    // Передаем отфильтрованный список участников целевого чата
+                    TargetUserIds = pushRecipients
                 });
             }
 
