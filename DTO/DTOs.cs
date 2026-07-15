@@ -400,6 +400,52 @@ namespace IDMChat.DTO
         public string role { get; set; }
     }
 
+    #region Folders
+    public class ChatFolderDto
+    {
+        public Guid id { get; set; }
+        public string title { get; set; } = string.Empty;
+        public int position { get; set; }
+        public List<Guid> conversation_ids { get; set; } = new(); // Обычные чаты папки
+        public List<Guid> pinned_conversation_ids { get; set; } = new(); // Закрепленные чаты папки
+        public DateTime created_at { get; set; }
+        public DateTime updated_at { get; set; }
+    }
+
+    public class ChatFoldersListResponseDto
+    {
+        public List<ChatFolderDto> folders { get; set; } = new();
+    }
+
+    public class CreateChatFolderRequestDto
+    {
+        public string title { get; set; } = string.Empty;
+
+        // Массив чатов опционален, инициализируем пустым списком
+        public List<Guid>? conversation_ids { get; set; } = new();
+    }
+
+    public class RenameChatFolderRequestDto
+    {
+        public string title { get; set; } = string.Empty;
+    }
+
+    public class ReorderChatFoldersRequestDto
+    {
+        public List<Guid> folder_ids { get; set; } = new();
+    }
+
+    public class AddChatsToFolderRequestDto
+    {
+        public List<Guid> conversation_ids { get; set; } = new();
+    }
+
+    public class PinChatsInFolderRequestDto
+    {
+        public List<Guid> conversation_ids { get; set; } = new();
+    }
+    #endregion
+
     #region Settings
     // Request DTO
     public class UpdateSettingsRequest

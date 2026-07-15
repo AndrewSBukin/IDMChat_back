@@ -25,6 +25,9 @@ namespace IDMChat.Models
 
         [Required]
         public bool IsPinned { get; set; }
+        
+        [Required]
+        public int PinnedOrder { get; set; } = 0;
 
         [Required]
         public bool IsMuted { get; set; }

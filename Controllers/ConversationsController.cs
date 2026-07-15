@@ -855,6 +855,12 @@ namespace IDMChat.Controllers
             // 6. Удаляем участника
             _db.ConversationMembers.Remove(targetMember);
 
+            // --- ОЧИСТКА ЧАТА ИЗ ПАПОК ПОЛЬЗОВАТЕЛЯ
+            await _db.ChatFolderItems
+                .Where(item => item.ConversationId == id && item.Folder.UserId == memberId)
+                .ExecuteDeleteAsync(ct);
+
+
             // 7. Системное сообщение
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
             var removedUser = await _db.Users.FindAsync(new object[] { memberId }, ct);
@@ -888,6 +894,8 @@ namespace IDMChat.Controllers
 
             // 9. Инвалидируем кэш
             _chatCache.Invalidate(id);
+
+            await SendFoldersChangedNotification(memberId, ct);
 
             return NoContent();
         }
@@ -936,6 +944,11 @@ namespace IDMChat.Controllers
             // 4. Удаляем участника из базы
             _db.ConversationMembers.Remove(member);
 
+            // --- ОЧИСТКА ЧАТА ИЗ ПАПОК ПОЛЬЗОВАТЕЛЯ
+            await _db.ChatFolderItems
+                .Where(item => item.ConversationId == id && item.Folder.UserId == userId)
+                .ExecuteDeleteAsync(ct);
+
             // 5. Генерируем системное сообщение о том, что пользователь вышел сам
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
             var systemMessage = new Message
@@ -971,7 +984,49 @@ namespace IDMChat.Controllers
             // 8. Инвалидируем кэш чата
             _chatCache.Invalidate(id);
 
+            await SendFoldersChangedNotification(userId, ct);
+
             return NoContent(); // 204 No Content
+        }
+
+        private async Task SendFoldersChangedNotification(Guid userId, CancellationToken ct = default)
+        {
+            // 1. Вычитываем из базы ВСЕ папки пользователя со всеми вложенными элементами
+            var dbFolders = await _db.ChatFolders
+                .Include(f => f.Items)
+                .Where(f => f.UserId == userId)
+                .OrderBy(f => f.Position) // Строго сортируем по position asc (Пункт 2.1)
+                .ToListAsync(ct);
+
+            // 2. Маппим сущности БД в чистые структуры ChatFolderDto
+            var folderDtos = dbFolders.Select(f => new ChatFolderDto
+            {
+                id = f.Id,
+                title = f.Title,
+                position = f.Position,
+                created_at = f.CreatedAt,
+                updated_at = f.UpdatedAt,
+
+                // Обычные чаты папки (сохраняем порядок добавления по Order)
+                conversation_ids = f.Items
+                    .OrderBy(i => i.Order)
+                    .Select(i => i.ConversationId)
+                    .ToList(),
+
+                // Закрепленные чаты папки (сохраняем порядок закрепа по PinnedOrder)
+                pinned_conversation_ids = f.Items
+                    .Where(i => i.IsPinned)
+                    .OrderBy(i => i.PinnedOrder)
+                    .Select(i => i.ConversationId)
+                    .ToList()
+            }).ToList();
+
+            // 3. Отправляем ВСЕМ активным устройствам данного конкретного пользователя (Clients.User)
+            // Название события строго по ТЗ: "folders_changed"
+            await _hubContext.Clients.User(userId.ToString()).SendAsync("folders_changed", new
+            {
+                folders = folderDtos
+            }, ct);
         }
 
         [HttpGet("{id}/members")]

@@ -20,6 +20,8 @@ namespace IDMChat.Models
         public DbSet<FileAttachment> FileAttachments { get; set; }
         public DbSet<DeviceToken> DeviceTokens { get; set; }
         public DbSet<MessageReaction> MessageReactions { get; set; }
+        public DbSet<ChatFolder> ChatFolders { get; set; }
+        public DbSet<ChatFolderItem> ChatFolderItems { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
