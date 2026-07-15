@@ -37,6 +37,7 @@ namespace IDMChat.Models
 
         [Required]
         public bool IsWriteRestricted { get; set; } = false; // true = только админы
+        public Guid? OwnerId { get; set; }
 
         #region Last message
         public long? LastMessageId { get; set; }

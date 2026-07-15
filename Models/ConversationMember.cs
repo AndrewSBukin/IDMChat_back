@@ -4,6 +4,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace IDMChat.Models
 {
+    public enum ChatRole
+    {
+        Member = 10,       // Участник: может только писать сообщения
+        Admin = 20,        // Админ: может удалять чужие сообщения, банить участников
+        Owner = 30         // Владелец: полный контроль, может назначить админа или удалить чат
+    }
+
     [Index(nameof(UserId), nameof(IsPinned), nameof(ConversationId))]
     [Index(nameof(UserId), nameof(JoinedAt))]
     [PrimaryKey(nameof(ConversationId), nameof(UserId))]
@@ -29,6 +36,9 @@ namespace IDMChat.Models
         public DateTime JoinedAt { get; set; }
 
         public long? LastReadMessageId { get; set; }
+
+        public ChatRole Role { get; set; }
+
 
         [ForeignKey(nameof(ConversationId))]
         public Conversation Conversation { get; set; } = null!;

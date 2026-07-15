@@ -82,17 +82,19 @@ namespace IDMChat.Controllers
                     // Участники (только для group, для direct - все)
                     Members = cm.Conversation.Type == ConversationType.group
                         ? cm.Conversation.Members
-                        .Where(m => !m.Conversation.IsDeleted)
-                        .Select(m => new MemberResponse
-                        {
-                            id = m.UserId,
-                            display_name = m.User.DisplayName,
-                            avatar_url = m.User.AvatarUrl,
-                            status = _userCache.IsOnline(m.UserId) ? "online" : "offline",
-                            custom_status = m.User.CustomStatus,
-                            is_online = _userCache.IsOnline(m.UserId), 
-                            last_seen_at = m.User.LastSeenAt
-                        }).ToList()
+                            .Where(m => !m.Conversation.IsDeleted)
+                            .Select(m => new MemberResponse
+                            {
+                                id = m.UserId,
+                                display_name = m.User.DisplayName ?? "Сотрудник",
+                                avatar_url = m.User.AvatarUrl,
+                                status = _userCache.IsOnline(m.UserId) ? "online" : "offline",
+                                custom_status = m.User.CustomStatus,
+                                is_online = _userCache.IsOnline(m.UserId), 
+                                last_seen_at = m.User.LastSeenAt,
+                                role = cm.Conversation.OwnerId == m.UserId ? "owner" : (m.IsAdmin ? "admin" : "member"),
+                                joined_at = m.JoinedAt
+                            }).ToList()
                         : cm.Conversation.Members
                             .Where(m => m.UserId != userId)
                             .Select(m => new MemberResponse
@@ -644,6 +646,27 @@ namespace IDMChat.Controllers
             return Ok(new MuteDto { is_muted = member.IsMuted });
         }
 
+        [HttpGet("{id}")]
+        public async Task<ActionResult<ConversationResponse>> GetConversation(Guid id, CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+            //var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
+
+            // Проверка: пользователь в чате?
+            var isMember = await _db.ConversationMembers
+                .AnyAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
+
+            if (!isMember)
+                return NotFound();
+
+            var response = await BuildConversationResponse(id, userId, ct);
+            return Ok(response);
+        }
+
+        #endregion
+
+        #region Members
+
         /// <summary>
         /// Добавить участников в группу (только для администратора)
         /// </summary>
@@ -653,9 +676,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // 1. Находим чат
-            var conversation = await _db.Conversations.AsTracking()
-                .FirstOrDefaultAsync(c => c.Id == id, ct);
-
+            var conversation = await _db.Conversations.AsTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
             if (conversation == null)
                 return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
@@ -663,28 +684,25 @@ namespace IDMChat.Controllers
             if (conversation.Type != ConversationType.group)
                 return BadRequest(new { error = new { code = "NOT_GROUP", message = "Только в групповые чаты можно добавлять участников" } });
 
-            // 3. Проверка: пользователь — администратор?
-            var isAdmin = await _db.ConversationMembers
-                .AnyAsync(cm => cm.ConversationId == id && cm.UserId == userId && cm.IsAdmin, ct);
+            var currentMember = await _db.ConversationMembers.FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
+            bool isCallerOwner = conversation.OwnerId == userId;
+            bool isCallerAdmin = currentMember?.IsAdmin == true;
 
-            if (!isAdmin)
-                return StatusCode(403, new { error = new { code = "NOT_ADMIN", message = "Только администратор может добавлять участников" } });
+            // 3. Проверка: пользователь — администратор?
+            if (!isCallerOwner && !isCallerAdmin)
+                return StatusCode(403, new { error = new { code = "NOT_ADMIN", message = "Только администратор или владелец может добавлять участников" } });
 
             // 4. Получаем текущих участников
             var existingMemberIds = (await _db.ConversationMembers
                 .Where(cm => cm.ConversationId == id)
-                .Select(cm => cm.UserId)
-                .ToListAsync(ct))
-                .ToHashSet();
+                .Select(cm => cm.UserId).ToListAsync(ct)).ToHashSet();
 
             // 5. Фильтруем новых участников (которых ещё нет в чате)
             var newMemberIds = request.MemberIds
-                .Where(mid => !existingMemberIds.Contains(mid))
-                .Distinct()
-                .ToList();
+                .Where(mid => !existingMemberIds.Contains(mid)).Distinct().ToList();
 
             if (!newMemberIds.Any())
-                return Ok(new { added = 0, message = "Нет новых участников для добавления" });
+                return Ok(new { added = 0, items = new List<MemberResponse>(), message = "Нет новых участников для добавления" });
 
             // 6. Проверка компании (если не админ)
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
@@ -715,7 +733,7 @@ namespace IDMChat.Controllers
 
             _db.ConversationMembers.AddRange(newMembers);
 
-            // 8. Системное сообщение о добавлении
+            // Системное сообщение о добавлении
             var currentUserDisplayName = currentUser.DisplayName;
             var addedNames = await _db.Users
                 .Where(u => newMemberIds.Contains(u.Id))
@@ -726,7 +744,7 @@ namespace IDMChat.Controllers
             {
                 ConversationId = id,
                 SenderId = userId,
-                Text = $"{currentUserDisplayName} добавил(а): {string.Join(", ", addedNames)}",
+                Text = $"{currentUser.DisplayName} добавил(а): {string.Join(", ", addedNames)}",
                 Type = MessageType.System,
                 CreatedAt = DateTime.UtcNow,
                 SentAt = DateTime.UtcNow,
@@ -736,7 +754,7 @@ namespace IDMChat.Controllers
 
             _db.Messages.Add(systemMessage);
 
-            // 9. Обновляем LastMessage
+            // Обновляем LastMessage
             conversation.LastMessageId = systemMessage.Id;
             conversation.LastMessageText = systemMessage.Text.Length > 100
                 ? systemMessage.Text[..100] + "..."
@@ -747,7 +765,28 @@ namespace IDMChat.Controllers
 
             await _db.SaveChangesAsync(ct);
 
-            // 10. Уведомления через хаб
+            var resultList = new List<MemberResponse>();
+            foreach (var m in newMembers)
+            {
+                var uCache = _userCache.GetUser(m.UserId);
+                var memberDto = new MemberResponse
+                {
+                    id = m.UserId,
+                    display_name = uCache?.DisplayName ?? "Пользователь",
+                    avatar_url = _urlResolver.ResolveUrl(uCache?.AvatarUrl),
+                    status = _userCache.IsOnline(m.UserId) ? "online" : "offline", // или актуальное состояние
+                    is_online = _userCache.IsOnline(m.UserId),
+                    custom_status = uCache?.CustomStatus,
+                    role = "member", // Новые пользователи всегда заходят как member
+                    joined_at = m.JoinedAt
+                };
+                resultList.Add(memberDto);
+
+                // SignalR по ТЗ: рассылается событие MemberAdded (Пункт 12.5)
+                //await _hubContext.Clients.Group(id.ToString()).SendAsync("members_added", new { conversationId = id, member = memberDto });
+            }
+
+            // Уведомления через хаб
             var fullConversation = await BuildConversationUpdatedDto(conversation, ct);
             foreach (var newMemberId in newMemberIds)
             {
@@ -772,9 +811,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // 1. Находим чат
-            var conversation = await _db.Conversations.AsTracking()
-                .FirstOrDefaultAsync(c => c.Id == id, ct);
-
+            var conversation = await _db.Conversations.AsTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
             if (conversation == null)
                 return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
@@ -786,22 +823,37 @@ namespace IDMChat.Controllers
             var isAdmin = await _db.ConversationMembers
                 .AnyAsync(cm => cm.ConversationId == id && cm.UserId == userId && cm.IsAdmin, ct);
 
-            if (!isAdmin)
-                return StatusCode(403, new { error = new { code = "NOT_ADMIN", message = "Только администратор может удалять участников" } });
+            if (userId == memberId)
+                return BadRequest(new { error = new { code = "CANNOT_REMOVE_SELF", message = "Используйте DELETE /conversations/{id} для выхода из группы" } });
+
+            var currentMember = await _db.ConversationMembers.FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
+            var targetMember = await _db.ConversationMembers.FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == memberId, ct);
+
+            bool isCallerOwner = conversation.OwnerId == userId;
+            bool isCallerAdmin = currentMember?.IsAdmin == true;
+
+            if (!isCallerOwner && !isCallerAdmin)
+                return StatusCode(403, new { error = new { code = "NOT_ADMIN", message = "Только администратор или владелец может удалять участников" } });
 
             // 4. Нельзя удалить самого себя (для выхода из группы есть DELETE /conversations/{id})
             if (userId == memberId)
                 return BadRequest(new { error = new { code = "CANNOT_REMOVE_SELF", message = "Используйте DELETE /conversations/{id} для выхода из группы" } });
 
-            // 5. Находим удаляемого участника
-            var member = await _db.ConversationMembers
-                .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == memberId, ct);
+            bool isTargetOwner = conversation.OwnerId == memberId;
+            bool isTargetAdmin = targetMember.IsAdmin;
 
-            if (member == null)
+            if (targetMember == null)
                 return NotFound(new { error = new { code = "MEMBER_NOT_FOUND", message = "Участник не найден" } });
 
+            if (isTargetOwner)
+                return StatusCode(403, new { error = new { code = "CANNOT_REMOVE_OWNER", message = "Нельзя исключить владельца группы" } });
+
+            if (isTargetAdmin && !isCallerOwner)
+                return StatusCode(403, new { error = new { code = "CANNOT_REMOVE_ADMIN", message = "Только владелец группы может исключить администратора" } });
+
+
             // 6. Удаляем участника
-            _db.ConversationMembers.Remove(member);
+            _db.ConversationMembers.Remove(targetMember);
 
             // 7. Системное сообщение
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
@@ -840,20 +892,280 @@ namespace IDMChat.Controllers
             return NoContent();
         }
 
-        [HttpGet("{id}")]
-        public async Task<ActionResult<ConversationResponse>> GetConversation(Guid id, CancellationToken ct = default)
+        [HttpDelete("{id}/leave")]
+        [Authorize]
+        public async Task<IActionResult> LeaveConversation(Guid id, CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
-            //var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
 
-            // Проверка: пользователь в чате?
-            var isMember = await _db.ConversationMembers
-                .AnyAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
+            // 1. Находим чат
+            var conversation = await _db.Conversations.AsTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
 
-            if (!isMember)
-                return NotFound();
+            if (conversation == null)
+                return NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = "Диалог не найден" } });
 
-            var response = await BuildConversationResponse(id, userId, ct);
+            // 2. Выйти можно только из группового чата (из ЛС выйти нельзя, его можно только удалить/очистить)
+            if (conversation.Type != ConversationType.group)
+                return BadRequest(new { error = new { code = "NOT_GROUP", message = "Самостоятельно покинуть можно только групповой чат" } });
+
+            // 3. Находим запись участника в БД
+            var member = await _db.ConversationMembers
+                .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
+
+            if (member == null)
+                return NotFound(new { error = new { code = "NOT_A_MEMBER", message = "Вы не являетесь участником этой группы" } });
+
+            // --- КРИТИЧЕСКОЕ ПРАВИЛО КОРПОРАТИВНЫХ ЧАТОВ ---
+            // Если группу пытается покинуть сам Создатель (Owner), он НЕ МОЖЕТ этого сделать, 
+            // пока в чате есть другие люди, не передав права овнера кому-то другому.
+            // Иначе чат останется «сиротой» без главного администратора.
+            bool isOwner = conversation.OwnerId == userId;
+            if (isOwner)
+            {
+                // Проверяем, есть ли в чате кто-то еще, кроме него
+                bool hasOtherMembers = await _db.ConversationMembers
+                    .AnyAsync(cm => cm.ConversationId == id && cm.UserId != userId, ct);
+
+                if (hasOtherMembers)
+                {
+                    return BadRequest(new {error = new {code = "OWNER_CANNOT_LEAVE", message = "Вы являетесь владельцем группы. Передайте права 'owner' другому участнику перед выходом."} });
+                }
+            }
+            // -----------------------------------------------
+
+            // 4. Удаляем участника из базы
+            _db.ConversationMembers.Remove(member);
+
+            // 5. Генерируем системное сообщение о том, что пользователь вышел сам
+            var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
+            var systemMessage = new Message
+            {
+                ConversationId = id,
+                SenderId = userId,
+                Text = $"Пользователь {currentUser?.DisplayName } покинул(а) группу",
+                Type = MessageType.System,
+                CreatedAt = DateTime.UtcNow,
+                SentAt = DateTime.UtcNow,
+                IsDeleted = false,
+                ChannelId = 0
+            };
+            _db.Messages.Add(systemMessage);
+
+            // 6. Обновляем LastMessage чата
+            conversation.LastMessageId = systemMessage.Id;
+            conversation.LastMessageText = systemMessage.Text;
+            conversation.LastMessageSenderId = userId;
+            conversation.LastMessageCreatedAt = systemMessage.CreatedAt;
+            conversation.UpdatedAt = systemMessage.CreatedAt;
+
+            await _db.SaveChangesAsync(ct);
+
+
+            await _hubContext.Clients.Group(id.ToString()).SendAsync("members_removed", new
+            {
+                conversation_id = id,
+                member_ids = new[] { userId },
+                removed_by = userId
+            });
+
+            // 8. Инвалидируем кэш чата
+            _chatCache.Invalidate(id);
+
+            return NoContent(); // 204 No Content
+        }
+
+        [HttpGet("{id}/members")]
+        [Authorize]
+        public async Task<IActionResult> GetMembers(Guid id, CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            var conversation = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == id, ct);
+            if (conversation == null) return NotFound();
+
+            // Проверяем, состоит ли вызывающий в этом чате
+            var isMember = await _db.ConversationMembers.AnyAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
+            if (!isMember) return Forbid();
+
+            var dbMembers = await _db.ConversationMembers
+                .Where(cm => cm.ConversationId == id)
+                .ToListAsync(ct);
+
+            var memberResponses = dbMembers.Select(m =>
+            {
+                var uCache = _userCache.GetUser(m.UserId);
+
+                // Вычисляем текстовую роль на лету на основе ваших флагов БД
+                string calculatedRole = "member";
+                if (conversation.OwnerId == m.UserId) calculatedRole = "owner";
+                else if (m.IsAdmin) calculatedRole = "admin";
+
+                return new MemberResponse
+                {
+                    id = m.UserId,
+                    display_name = uCache?.DisplayName ?? "Удаленный пользователь",
+                    avatar_url = _urlResolver.ResolveUrl(uCache?.AvatarUrl),
+                    status = _userCache.IsOnline(m.UserId) ? "online" : "offline",
+                    is_online = _userCache.IsOnline(m.UserId),
+                    custom_status = uCache?.CustomStatus,
+                    last_seen_at = m.User.LastSeenAt,
+                    role = calculatedRole,
+                    joined_at = m.JoinedAt
+                };
+            })
+            // Сортировка по ТЗ (12.3): owner (приоритет 2) -> admin (приоритет 1) -> member (приоритет 0)
+            .OrderByDescending(m => m.role == "owner" ? 2 : m.role == "admin" ? 1 : 0)
+            .ThenBy(m => m.display_name)
+            .ToList();
+
+            return Ok(memberResponses);
+        }
+
+        [HttpPatch("{id}/members/{memberId}/role")]
+        [Authorize]
+        public async Task<IActionResult> ChangeMemberRole(Guid id, Guid memberId, [FromBody] ChangeRoleRequestDto dto, CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            if (dto.role != "admin" && dto.role != "member" && dto.role != "owner")
+                return BadRequest(new { error = new { code = "INVALID_ROLE", message = "Допустимые роли: admin, member, owner" } });
+
+            var conversation = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == id, ct);
+            if (conversation == null) return NotFound();
+
+            if (conversation.Type != ConversationType.group)
+                return BadRequest("Только для групповых чатов");
+
+            var currentMember = await _db.ConversationMembers.FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
+            var targetMember = await _db.ConversationMembers.FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == memberId, ct);
+
+            if (targetMember == null)
+                return NotFound(new { error = new { code = "MEMBER_NOT_FOUND", message = "Пользователь не является участником беседы" } });
+
+            bool isCallerOwner = conversation.OwnerId == userId;
+
+            // --- МАТРИЦА БЕЗОПАСНОСТИ СМЕНЫ РОЛИ ---
+            // Менять роли (назначать админов или разжаловать их) в вашей иерархии может ТОЛЬКО Owner
+            if (!isCallerOwner)
+                return StatusCode(403, new { error = new { code = "FORBIDDEN", message = "Только владелец группы может управлять ролями администраторов" } });
+
+            Message? systemMessage = null;
+            var oldOwnerUser = _userCache.GetUser(userId);
+            var targetUser = _userCache.GetUser(memberId);
+
+
+            // ----------------------------------------
+            if (dto.role == "owner")
+            {
+                if (conversation.OwnerId == memberId)
+                    return BadRequest("Пользователь уже является владельцем этой группы");
+
+                // Рокировка А: Находим старого владельца (текущего юзера) в участниках и делаем его просто админом
+                var previousOwnerMember = await _db.ConversationMembers
+                    .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == conversation.OwnerId, ct);
+
+                if (previousOwnerMember != null)
+                    previousOwnerMember.IsAdmin = true; // Понижаем до админа
+
+                // Рокировка Б: Меняем OwnerId в самом чате
+                conversation.OwnerId = memberId;
+
+                // Рокировка В: Нового владельца принудительно делаем админом в таблице связей
+                targetMember.IsAdmin = true;
+
+                // Формируем системный текст для записи в историю чата
+                systemMessage = new Message
+                {
+                    ConversationId = id,
+                    SenderId = userId,
+                    Text = $"{oldOwnerUser?.DisplayName} передал(а) права владельца группы пользователю {targetUser?.DisplayName}",
+                    Type = MessageType.System,
+                    CreatedAt = DateTime.UtcNow,
+                    SentAt = DateTime.UtcNow,
+                    IsDeleted = false,
+                    ChannelId = 0
+                };
+            }
+            else if (dto.role == "admin")
+            {
+                if (targetMember.IsAdmin)
+                    return BadRequest("Пользователь уже является администратором");
+
+                targetMember.IsAdmin = true;
+
+                systemMessage = new Message
+                {
+                    ConversationId = id,
+                    SenderId = userId,
+                    Text = $"{oldOwnerUser?.DisplayName} назначил(а) участника {targetUser?.DisplayName} администратором",
+                    Type = MessageType.System,
+                    CreatedAt = DateTime.UtcNow,
+                    SentAt = DateTime.UtcNow,
+                    IsDeleted = false,
+                    ChannelId = 0
+                };
+            }
+            else if (dto.role == "member")
+            {
+                if (memberId == conversation.OwnerId)
+                    return BadRequest(new { error = new { code = "CANNOT_DEMOTE_OWNER", message = "Нельзя разжаловать владельца. Сначала передайте права 'owner' другому участнику" } });
+
+                if (!targetMember.IsAdmin)
+                    return BadRequest("Пользователь уже является обычным участником");
+
+                targetMember.IsAdmin = false;
+
+                systemMessage = new Message
+                {
+                    ConversationId = id,
+                    SenderId = userId,
+                    Text = $"{oldOwnerUser?.DisplayName} лишил(а) участника {targetUser?.DisplayName} прав администратора",
+                    Type = MessageType.System,
+                    CreatedAt = DateTime.UtcNow,
+                    SentAt = DateTime.UtcNow,
+                    IsDeleted = false,
+                    ChannelId = 0
+                };
+            }
+
+            if (systemMessage != null)
+            {
+                _db.Messages.Add(systemMessage);
+
+                conversation.LastMessageId = systemMessage.Id;
+                conversation.LastMessageText = systemMessage.Text.Length > 100 ? systemMessage.Text[..100] + "..." : systemMessage.Text;
+                conversation.LastMessageSenderId = userId;
+                conversation.LastMessageCreatedAt = systemMessage.CreatedAt;
+                conversation.UpdatedAt = systemMessage.CreatedAt;
+            }
+
+            await _db.SaveChangesAsync(ct);
+
+            _chatCache.Invalidate(id); // Обнуляем кэш синглтона чата
+
+            // Формируем MemberResponse по ТЗ (Пункт 12.2)
+            var uCache = _userCache.GetUser(memberId);
+            var response = new MemberResponse
+            {
+                id = memberId,
+                display_name = uCache?.DisplayName ?? "Пользователь",
+                avatar_url = _urlResolver.ResolveUrl(uCache?.AvatarUrl),
+                status = _userCache.IsOnline(memberId) ? "online" : "offline",
+                is_online = _userCache.IsOnline(memberId),
+                custom_status = uCache?.CustomStatus,
+                last_seen_at = uCache?.LastSeenAt ?? DateTime.MinValue,
+                role = dto.role, // "admin" или "member"
+                joined_at = targetMember.JoinedAt
+            };
+
+            // SignalR по ТЗ: событие MemberRoleChanged рассылается всем участникам
+            await _hubContext.Clients.Group(id.ToString()).SendAsync("MemberRoleChanged", new
+            {
+                conversationId = id,
+                userId = memberId,
+                newRole = dto.role
+            });
+
             return Ok(response);
         }
         #endregion
@@ -2656,6 +2968,7 @@ namespace IDMChat.Controllers
                     cm.IsMuted,
                     cm.UnreadCount,
                     Conversation = cm.Conversation,
+                    cm.JoinedAt,
 
                     // Загружаем Mentions только для последнего сообщения, если оно существует
                     LastMessageMentions = cm.Conversation.LastMessageId != null
@@ -2700,7 +3013,9 @@ namespace IDMChat.Controllers
                     status = _userCache.IsOnline(memberId) ? "online" : "offline",
                     custom_status = user?.CustomStatus,
                     is_online = _userCache.IsOnline(memberId),
-                    last_seen_at = user?.LastSeenAt ?? DateTime.MinValue
+                    last_seen_at = user?.LastSeenAt ?? DateTime.MinValue,
+                    role = data.Conversation.OwnerId == memberId ? "owner" : (cachedChat.IsAdmin(memberId) ? "admin" : "member"),
+                    joined_at = data.JoinedAt
                 };
             }).ToList();
 
@@ -2761,79 +3076,6 @@ namespace IDMChat.Controllers
                 updated_at = data.Conversation.UpdatedAt
             };
         }
-        private async Task<ConversationResponse> BuildConversationResponse0(Guid conversationId, Guid userId, CancellationToken ct)
-        {
-            var data = await _db.ConversationMembers
-                .Where(cm => cm.ConversationId == conversationId && cm.UserId == userId)
-                .Select(cm => new
-                {
-                    cm.IsPinned,
-                    cm.IsMuted,
-                    cm.UnreadCount,
-                    Conversation = cm.Conversation,
-                    Members = cm.Conversation.Members.Select(m => new MemberResponse
-                    {
-                        id = m.UserId,
-                        display_name = m.User.DisplayName,
-                        avatar_url = m.User.AvatarUrl,
-                        status = _userCache.IsOnline(m.UserId) ? "online" : "offline", 
-                        custom_status = m.User.CustomStatus, 
-                        is_online = _userCache.IsOnline(m.UserId), 
-                        last_seen_at = m.User.LastSeenAt
-                    }).ToList(),
-                    LastMessage = cm.Conversation.LastMessageId != null
-                        ? new LastMessageDto
-                        {
-                            id = cm.Conversation.LastMessage.Id,
-                            text = cm.Conversation.LastMessage.Text.Length > 100
-                                    ? cm.Conversation.LastMessage.Text.Substring(0, 100) + "..."
-                                    : cm.Conversation.LastMessage.Text,
-                            type = cm.Conversation.LastMessage.Type.ToString().ToLower(),
-                            sender_id = cm.Conversation.LastMessage.SenderId,
-                            created_at = cm.Conversation.LastMessage.CreatedAt, 
-                            attachments = _db.FileAttachments
-                                .Where(a => a.MessageId == cm.Conversation.LastMessageId)
-                                .Select(a => new AttachmentDto
-                                {
-                                    id = a.Id,
-                                    file_name = a.FileName,
-                                    file_size = a.FileSize,
-                                    mime_type = a.MimeType,
-                                    url = _urlResolver.ResolveUrl(a.StoragePath),
-                                    thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
-                                })
-                                .ToList()
-                        }
-                        : null
-                })
-                .FirstOrDefaultAsync(ct);
 
-            if (data == null)
-                throw new NotFoundException("{\"error\": {\"code\": \"CONVERSATION_NOT_FOUND\", \"message\": \"Диалог не найден\"}}");
-
-            return new ConversationResponse
-            {
-                id = conversationId,
-                type = data.Conversation.Type.ToString(),
-                name = data.Conversation.Type == ConversationType.direct ? data.Members?.FirstOrDefault()?.display_name : data.Conversation.Name,
-                avatar_url = data.Conversation.Type == ConversationType.direct ? data.Members?.FirstOrDefault()?.avatar_url : data.Conversation.AvatarUrl,
-                is_pinned = data.IsPinned,
-                is_muted = data.IsMuted,
-                members = data.Members,
-                last_message = data.LastMessage,
-                unread_count = data.UnreadCount,
-                updated_at = data.Conversation.UpdatedAt
-            };
-        }
-
-        private static string ExtractFirstUrl(string text)
-        {
-            if (string.IsNullOrEmpty(text))
-                return string.Empty;
-
-            var regex = new Regex(@"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)");
-            var match = regex.Match(text);
-            return match.Success ? match.Value : string.Empty;
-        }
     }
 }
