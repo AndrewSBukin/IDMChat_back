@@ -304,7 +304,8 @@ namespace IDMChat.Controllers
                 AvatarUrl = request.AvatarUrl,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
-                Idm = idm
+                Idm = idm, 
+                OwnerId = currentUser.Id
             };
 
             // 3. Добавление участников
