@@ -12,6 +12,8 @@ using System.Net.Mail;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using static IDMChat.Controllers.FilesController;
+using static System.Net.Mime.MediaTypeNames;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace IDMChat.Hubs
@@ -175,9 +177,6 @@ namespace IDMChat.Hubs
                     return;
                 }
 
-                // 3. Валидация параметров
-                var messageType = ParseMessageType(msg.type);
-
                 object? replyToObj = null;
                 if (msg.reply_to_message_id.HasValue)
                 {
@@ -215,6 +214,36 @@ namespace IDMChat.Hubs
                     };
                 }
 
+                // 3. Валидация параметров
+                //var messageType = ParseMessageType(msg.type);
+
+                var calculatedMessageType = MessageType.Text;
+                if (msg.attachment_ids != null && msg.attachment_ids.Any())
+                {
+                    var attachedFileTypes = await _db.FileAttachments
+                        .Where(f => msg.attachment_ids.Contains(f.Id))
+                        .Select(f => f.Type)
+                        .ToListAsync(ct);
+
+                    if (attachedFileTypes.Any())
+                    {
+                        var firstAttachmentType = attachedFileTypes.First();
+                        bool isHomogeneous = attachedFileTypes.All(a => a == firstAttachmentType);
+                        if (isHomogeneous)
+                        {
+                            calculatedMessageType = firstAttachmentType switch
+                            {
+                                FileType.Image => MessageType.Image,
+                                FileType.Video => MessageType.Video,
+                                FileType.Voice => MessageType.Voice,
+                                _ => MessageType.File // Для всех остальных документов
+                            };
+                        }
+                        else
+                            calculatedMessageType = MessageType.Mixed;
+                    }
+                }
+
                 // 4. Создание сообщения
                 var message = new Message
                 {
@@ -222,12 +251,13 @@ namespace IDMChat.Hubs
                     ConversationId = msg.conversation_id,
                     SenderId = userId,
                     Text = msg.text ?? string.Empty,
-                    Type = messageType,
+                    Type = calculatedMessageType,
                     ReplyToMessageId = msg.reply_to_message_id,
                     SentAt = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow,
                     ChannelId = 0
                 };
+
 
                 // 6. Сохранение в БД
                 _db.Messages.Add(message);
@@ -468,14 +498,21 @@ namespace IDMChat.Hubs
                     // Передаем ID пользователей, кому предназначен пуш (например, меншены или все участники чата)
                     TargetUserIds = validMentionIds.ToList()
                 });
-                //_backgroundQueue.QueueBackgroundWorkItem(async token =>
-                //{
-                //    using var scope = _serviceProvider.CreateScope();
-                //    var pushService = scope.ServiceProvider.GetRequiredService<IPushNotificationService>();
 
-                //    // Передаем сущность сообщения, список меншенов и сырой тип ("text"/"image"...)
-                //    await pushService.SendNewMessagePushAsync(message, validMentionIds, msg.type);
-                //});
+                // ПРОВЕРКА НА КОМАНДУ БОТА
+                if (message.Text.StartsWith("/"))
+                {
+                    // Отправляем задачу в фоновую очередь, чтобы бэк быстро ответил фронту, 
+                    // а тяжелый запрос во внешнюю систему ушел в бэкграунд
+                    _backgroundPushQueue.Enqueue(new PushNotificationTask
+                    {
+                        MessageId = message.Id,
+                        ConversationId = message.ConversationId,
+                        SenderId = userId,
+                        MessageText = message.Text,
+                        MessageType = "bot_command" // Специальный тип задачи для нашего воркера
+                    });
+                }
             }
             catch (HubException)
             {
@@ -491,6 +528,24 @@ namespace IDMChat.Hubs
                 _logger.LogError(ex, "Error sending message to {ConversationId} {message}", msg.conversation_id, ex.Message);
                 throw new HubException("MESSAGE_SEND_FAILED", ex);
             }
+        }
+
+        [HubMethodName("PressButton")]
+        public async Task<bool> HandleBotButtonClick(Guid conversationId, long messageId, string buttonValue)
+        {
+            var userId = Context.GetUserId();
+
+            // Бросаем задачу в очередь, чтобы воркер уведомил внешнюю систему о клике
+            _backgroundPushQueue.Enqueue(new PushNotificationTask
+            {
+                MessageId = messageId,
+                ConversationId = conversationId,
+                SenderId = userId,
+                MessageText = buttonValue, // Передаем "Да" или "Нет"
+                MessageType = "bot_button_click"
+            });
+
+            return true;
         }
 
         [HubMethodName("ForwardMessages")]
@@ -747,19 +802,6 @@ namespace IDMChat.Hubs
 
             // Возвращаем список созданных сообщений в ответе hub-метода
             return resultDtos;
-        }
-
-        private MessageType ParseMessageType(string type)
-        {
-            return type?.ToLower() switch
-            {
-                "text" => MessageType.Text,
-                "image" => MessageType.Image,
-                "video" => MessageType.Video,
-                "file" => MessageType.File,
-                "voice" => MessageType.Voice,
-                _ => MessageType.Text
-            };
         }
 
 

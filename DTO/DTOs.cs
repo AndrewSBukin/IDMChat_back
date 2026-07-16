@@ -536,5 +536,11 @@ namespace IDMChat.DTO
         public string Role { get; set; } = string.Empty;       // Роль пользователя в ИДМ ("Admin" / "User")
         public string CompanyCode { get; set; } = string.Empty; // Тот самый `idm` код компании
     }
+
+    public class ExternalMessageRequestDto
+    {
+        public string chat_id { get; set; } = string.Empty; // Например, "tg_-100123456"
+        public string text { get; set; } = string.Empty;             // Текст уведомления
+    }
     #endregion
 }

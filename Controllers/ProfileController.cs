@@ -64,7 +64,10 @@ public class ProfileController : ControllerBase
             return NotFound();
 
         if (request.display_name != null)
+        {
             user.DisplayName = request.display_name;
+            user.IsDisplayNameCustom = true;
+        }
 
         if (request.phone != null)
             user.Phone = request.phone;

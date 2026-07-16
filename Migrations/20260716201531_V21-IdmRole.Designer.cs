@@ -4,6 +4,7 @@ using IDMChat.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IDMChat.Migrations
 {
     [DbContext(typeof(ChatDbContext))]
-    partial class ChatDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260716201531_V21-IdmRole")]
+    partial class V21IdmRole
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -209,33 +212,6 @@ namespace IDMChat.Migrations
                     b.HasKey("UserId", "DeviceId");
 
                     b.ToTable("DeviceTokens");
-                });
-
-            modelBuilder.Entity("IDMChat.Models.ExternalChatMapping", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("ConversationId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ExternalChatId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ConversationId");
-
-                    b.HasIndex(new[] { "ExternalChatId" }, "IX_ExternalChatMappings_ExternalChatId")
-                        .IsUnique();
-
-                    b.ToTable("ExternalChatMappings");
                 });
 
             modelBuilder.Entity("IDMChat.Models.FileAttachment", b =>
@@ -667,17 +643,6 @@ namespace IDMChat.Migrations
                     b.Navigation("Conversation");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("IDMChat.Models.ExternalChatMapping", b =>
-                {
-                    b.HasOne("IDMChat.Models.Conversation", "Conversation")
-                        .WithMany()
-                        .HasForeignKey("ConversationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Conversation");
                 });
 
             modelBuilder.Entity("IDMChat.Models.FileAttachment", b =>

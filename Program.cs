@@ -49,6 +49,13 @@ namespace IDMChat
                 options.EnableDetailedErrors(false);
             }, poolSize: 256);
 
+            builder.Services.AddHttpClient();
+            builder.Services.AddHttpClient<IIdmApiClient, IdmApiClient>(client =>
+            {
+                client.BaseAddress = new Uri("https://idmbb.ru:8085"); // Мастер-URL ИДМ
+                client.DefaultRequestHeaders.Add("X-Internal-Api-Key", "SuperSecretKey_IdmToChat_2026_SecureToken!");
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+            });
             builder.Services.AddControllers();
             builder.Services.AddMemoryCache();
             builder.Services.AddSingleton<ChatStateCache>();
@@ -261,61 +268,42 @@ namespace IDMChat
 
             app.UseMiddleware<LoggingMiddleware>();
 
-            //app.UseExceptionHandler(errorApp =>
-            //{
-            //    errorApp.Run(async context =>
-            //    {
-            //        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
-
-            //        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-            //        logger.LogError(exception, "Unhandled exception");
-
-            //        if (exception is RateLimitException rateLimitEx)
-            //        {
-            //            context.Response.StatusCode = 429;
-            //            context.Response.Headers.RetryAfter = rateLimitEx.RetryAfterSeconds.ToString();
-
-            //            await context.Response.WriteAsJsonAsync(new
-            //            {
-            //                code = "RATE_LIMIT",
-            //                message = rateLimitEx.Message,
-            //                retryAfter = rateLimitEx.RetryAfterSeconds
-            //            });
-            //        }
-            //        else if(exception is UnauthorizedAccessException)
-            //        {
-            //            var ex = exception as UnauthorizedAccessException;
-            //            context.Response.StatusCode = 403;
-            //            context.Response.ContentType = "application/json";
-
-            //            await context.Response.WriteAsJsonAsync(ex.Message);
-            //        }
-            //        else
-            //        {
-            //            var (statusCode, code, message) = exception switch
-            //            {
-            //                NotFoundException => (404, "NOT_FOUND", exception.Message),
-            //                ForbiddenException => (403, "FORBIDDEN", exception.Message),
-            //                ValidationException => (400, "VALIDATION_ERROR", exception.Message),
-            //                UnauthorizedException => (401, "UNAUTHORIZED", "Требуется авторизация"),
-            //                //_ => (500, "INTERNAL_ERROR", "Ошибка сервера")
-            //                _ => (500, "INTERNAL_ERROR", exception?.ToString())
-            //            };
-
-            //            context.Response.StatusCode = statusCode;
-            //            context.Response.ContentType = "application/json";
-                                                
-            //            await context.Response.WriteAsJsonAsync(new { code, message });
-            //        }
-            //    });
-            //});
-
             app.UseHttpsRedirection();
             app.UseCors("AllowClient");
 
             app.UseAuthentication();
             app.UseMiddleware<ActiveUserMiddleware>();
             app.UseAuthorization();
+
+            app.Use(async (context, next) =>
+            {
+                // Проверяем, авторизован ли пользователь в данный момент по JWT
+                if (context.User.Identity?.IsAuthenticated == true)
+                {
+                    // Извлекаем Guid пользователя из Claims токена (через ваше расширение или явным образом)
+                    var userIdClaim = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+                    if (Guid.TryParse(userIdClaim, out var userId))
+                    {
+                        var userCache = context.RequestServices.GetRequiredService<UserCache>();
+
+                        // Быстро вытаскиваем профиль из оперативной памяти сервера
+                        var cachedUser = userCache.GetUser(userId);
+
+                        // Если флаг блокировки взведен — шлем жесткий от ворот поворот (403)
+                        if (cachedUser != null && !cachedUser.IsActive)
+                        {
+                            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                            context.Response.ContentType = "application/json";
+                            await context.Response.WriteAsJsonAsync(new { code = "ACCOUNT_BLOCKED", message = "Ваш аккаунт заблокирован. Доступ к чату запрещен." });
+                            return; // Прерываем конвейер
+                        }
+                    }
+                }
+
+                // Если всё хорошо или запрос публичный — идем дальше
+                await next();
+            });
 
             app.UseStaticFiles(new StaticFileOptions
             {

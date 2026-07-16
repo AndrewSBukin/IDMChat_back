@@ -1,7 +1,9 @@
 ﻿using Asp.Versioning;
+using Google.Apis.Http;
 using IDMChat.DTO;
 using IDMChat.Models;
 using IDMChat.Services;
+using IDMChat.Utils;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -18,12 +20,16 @@ public class AuthController : ControllerBase
     private readonly ChatDbContext _dbContext;
     private readonly IConfiguration _config;
     private readonly IChatPathUrlResolver _urlResolver;
+    private readonly IIdmApiClient _idmClient;
+    private readonly UserCache _userCache;
 
-    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver)
+    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient)
     {
         _dbContext = dbContext;
         _config = config;
         _urlResolver = urlResolver;
+        _idmClient = idmClient;
+        _userCache = userCache;
     }
 
     class IdmUser
@@ -36,9 +42,9 @@ public class AuthController : ControllerBase
         public bool Blocked { get; set; }
     }
     [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request)
+    public async Task<IActionResult> Login([FromBody] LoginRequest dto, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
+        if (string.IsNullOrEmpty(dto.Username) || string.IsNullOrEmpty(dto.Password))
         {
             return Unauthorized(new
             {
@@ -49,64 +55,76 @@ public class AuthController : ControllerBase
                 }
             });
         }
-        bool useIdmDb = false;
 
-        IdmUser idmUser = new IdmUser();
-        if (useIdmDb)
+        var idmResult = await _idmClient.VerifyCredentialsAsync(dto.Username, dto.Password, ct);
+
+        // 2. Если ИДМ вернула null (неверные учетные данные или заблокирован)
+        if (idmResult == null)
         {
-            using SqlConnection con = new SqlConnection("");
-            con.Open();
-            using SqlCommand cmd = con.CreateCommand();
-            cmd.CommandText = "SELECT s.id, fio, username, idm, p.password, case when ISNULL([isBlocked],0) = 1 OR ISNULL([isDeleted], 0) = 1 OR ISNULL([isBlackList], 0) = 1 OR statusesID <> 2 then 1 else 0 end blocked FROM sb_staff s join sb_staff_passwords p on p.login = s.username where s.username = @login";
-            cmd.Parameters.AddWithValue("login", request.Username);
-            using SqlDataReader dr =  await cmd.ExecuteReaderAsync();
-            if (dr.Read())
+            return Unauthorized(new { error = new { code = "INVALID_CREDENTIALS", message = "Неверный логин или пароль, либо учетная запись заблокирована в ИДМ" } });
+        }
+
+        string incomingName = !string.IsNullOrWhiteSpace(idmResult.FullName) ? idmResult.FullName : dto.Username;
+
+        var localUser = await _dbContext.Users
+                .AsTracking()
+                .FirstOrDefaultAsync(u => u.IdmUserId == idmResult.UserId, ct);
+
+        if (localUser == null)
+        {
+            // КЕЙС А: Пользователь зашел в чат ВПЕРВЫЕ (Автоматическое создание)
+            localUser = new User
             {
-                idmUser.Id = (int)dr["id"];
-                idmUser.Fio = (string)dr["fio"];
-                idmUser.Username = (string)dr["username"];
-                idmUser.Idm = (string)dr["idm"];
-                idmUser.Password = (string)dr["password"];
-                idmUser.Blocked = (int)dr["blocked"] == 1;
+                Id = Guid.NewGuid(),
+                IdmUserId = idmResult.UserId,
+                DisplayName = incomingName,
+                IsDisplayNameCustom = false, // Новое имя прилетело из ИДМ, флаг сброшен
+                IdmRole = idmResult.Role,
+                Role = MapIdmRoleToChatRole(idmResult.Role),
+                idm = idmResult.CompanyCode, // Привязываем код компании сотрудника
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            };
+            _dbContext.Users.Add(localUser);
+        }
+        else
+        {
+            // КЕЙС Б: Пользователь уже существует в чате
+            // Обновляем DisplayName только если пользователь еще не менял его сам в чате (Защита кастомных имен)
+            if (!localUser.IsDisplayNameCustom && localUser.DisplayName != incomingName)
+            {
+                localUser.DisplayName = incomingName;
             }
-        }
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Username == request.Username);
 
-        if (user == null)
-        {
-            // TODO: try to find user in idmnew database
-            // if exists and active then copy to this database.
+            // Роль и код компании (idm) в чате обновляем ВСЕГДА на основе мастер-системы ИДМ
+            localUser.IdmRole = idmResult.Role;
+            localUser.Role = MapIdmRoleToChatRole(idmResult.Role);
+            localUser.idm = idmResult.CompanyCode;
         }
 
-        if (user == null || !user.IsActive || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
-        {
-            return Unauthorized(new
-            {
-                error = new ErrorDto()
-                {
-                    code = "INVALID_CREDENTIALS",
-                    message = "Неверный логин или пароль"
-                }
-            });
-        }
+        await _dbContext.SaveChangesAsync(ct);
+        _userCache.AddOrUpdateUser(localUser.Id, localUser.DisplayName, localUser.AvatarUrl, localUser.CustomStatus, localUser.LastSeenAt, localUser.IdmUserId, localUser.IsActive);
+
 
         // TODO: check if user is active in 
+        if (!localUser.IsActive)
+            return Unauthorized(new { error = new { code = "ACCOUNT_BLOCKED", message = "Учетная запись заблокирована." } });
 
         // Обновляем данные пользователя
-        user.LastLoginAt = DateTime.UtcNow;
-        user.LastSeenAt = DateTime.UtcNow;
-        _dbContext.Users.Update(user);
+        localUser.LastLoginAt = DateTime.UtcNow;
+        localUser.LastSeenAt = DateTime.UtcNow;
+        _dbContext.Users.Update(localUser);
         await _dbContext.SaveChangesAsync();
 
         // Генерируем токены
         var userDto = new UserDto
         {
-            id = user.Id,
-            username = user.Username,
-            display_name = user.DisplayName ?? user.Username,
-            avatar_url = _urlResolver.ResolveUrl(user.AvatarUrl), 
+            id = localUser.Id,
+            username = localUser.Username,
+            display_name = localUser.DisplayName ?? localUser.Username,
+            avatar_url = _urlResolver.ResolveUrl(localUser.AvatarUrl), 
             is_online = true, 
-            last_seen_at = user.LastSeenAt
+            last_seen_at = localUser.LastSeenAt
         };
 
         var accessToken = GenerateAccessToken(userDto);
@@ -117,7 +135,7 @@ public class AuthController : ControllerBase
         var refreshTokenEntity = new RefreshToken
         {
             Token = refreshToken,
-            UserId = user.Id,
+            UserId = localUser.Id,
             ExpiresAt = DateTime.UtcNow.AddDays(7),
             CreatedByIp = HttpContext.Connection.RemoteIpAddress?.ToString()
         };
@@ -132,6 +150,21 @@ public class AuthController : ControllerBase
             user = userDto
         });
     }
+
+    private UserRole MapIdmRoleToChatRole(string idmRole)
+    {
+        if (string.IsNullOrEmpty(idmRole)) return UserRole.Employee;
+
+        // Приводим к нижнему регистру для защиты от опечаток
+        return idmRole.ToLowerInvariant() switch
+        {
+            "administrator" => UserRole.Admin, // Главный админ ИДМ становится админом чата
+            "manager" => UserRole.Manager,
+            "pointmanager" => UserRole.Manager,                                  // "hr_manager" => UserRole.Admin, // Пример: если в будущем захотите добавить еще админов
+            _ => UserRole.Employee // Все остальные (pointmanager, operator и т.д.) для чата пока обычные пользователи
+        };
+    }
+
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {

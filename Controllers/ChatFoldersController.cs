@@ -1,4 +1,5 @@
-﻿using IDMChat.DTO;
+﻿using Asp.Versioning;
+using IDMChat.DTO;
 using IDMChat.Hubs;
 using IDMChat.Middleware;
 using IDMChat.Models;
@@ -11,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 namespace IDMChat.Controllers
 {
     [Route("api/v{version:apiVersion}/chat-folders")]
+    [ApiVersion("1.0")]
     [ApiController]
     public class ChatFoldersController : ControllerBase
     {

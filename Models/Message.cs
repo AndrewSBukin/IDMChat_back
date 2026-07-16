@@ -48,9 +48,7 @@ namespace IDMChat.Models
 
         public long? ReplyToMessageId { get; set; }
 
-        //[MaxLength]
-        //[Column(TypeName = "nvarchar(max)")]
-        //public string? KeyboardJson { get; set; } // хранить как JSON строку
+        public string? KeyboardJson { get; set; } // хранить как JSON строку
 
         //[NotMapped]
         //public KeyboardData? Keyboard
@@ -104,6 +102,7 @@ namespace IDMChat.Models
 
         [Display(Name = "voice")]
         Voice = 5,
+        Mixed = 6,
     }
 
     public class KeyboardData

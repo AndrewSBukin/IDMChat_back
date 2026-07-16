@@ -73,6 +73,9 @@ namespace IDMChat.Models
 
         public int? IdmUserId { get; set; }
 
+        [MaxLength(20)]
+        public string? IdmRole { get; set; } = "";
+
         [Required]
         public bool IsDisplayNameCustom { get; set; } = false;
 

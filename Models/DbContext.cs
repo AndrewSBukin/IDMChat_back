@@ -22,6 +22,7 @@ namespace IDMChat.Models
         public DbSet<MessageReaction> MessageReactions { get; set; }
         public DbSet<ChatFolder> ChatFolders { get; set; }
         public DbSet<ChatFolderItem> ChatFolderItems { get; set; }
+        public DbSet<ExternalChatMapping> ExternalChatMappings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

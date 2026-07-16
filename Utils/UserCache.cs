@@ -12,7 +12,8 @@ namespace IDMChat.Utils
             string? AvatarUrl,
             string? CustomStatus,
             DateTime LastSeenAt,
-            int? IdmUserId
+            int? IdmUserId,
+            bool IsActive
         );
 
         private readonly ConcurrentDictionary<Guid, string> _connections = new();
@@ -61,9 +62,9 @@ namespace IDMChat.Utils
                 }
             }
         }
-        public void AddOrUpdateUser(Guid userId, string displayName, string? avatarUrl, string? customStatus, DateTime lasSeenAt, int? idmUserId = null)
+        public void AddOrUpdateUser(Guid userId, string displayName, string? avatarUrl, string? customStatus, DateTime lasSeenAt, int? idmUserId = null, bool isActive = true)
         {
-            _userData[userId] = new CachedUser(userId, displayName, avatarUrl, customStatus, lasSeenAt, idmUserId);
+            _userData[userId] = new CachedUser(userId, displayName + (isActive ? "" : " [Блокирован]"), avatarUrl, customStatus, lasSeenAt, idmUserId, isActive);
             if (idmUserId.HasValue)
             {
                 _idmToGuidMap[idmUserId.Value] = userId;

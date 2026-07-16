@@ -195,20 +195,62 @@ namespace IDMChat.Controllers
             });
         }
 
+        private FileType DetermineFileType(IFormFile file)
+        {
+            // 1. Пытаемся взять MIME-тип, который прислал браузер клиента
+            string mimeType = file.ContentType?.ToLowerInvariant() ?? string.Empty;
+
+            // 2. Если браузер прислал дефолтный "application/octet-stream" или пустоту, 
+            // определяем MIME-тип самостоятельно по расширению файла
+            if (string.IsNullOrEmpty(mimeType) || mimeType == "application/octet-stream")
+            {
+                var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+                if (provider.TryGetContentType(file.FileName, out var detectedMimeType))
+                {
+                    mimeType = detectedMimeType.ToLowerInvariant();
+                }
+            }
+
+            // 3. Маппим MIME-тип на ваше внутреннее перечисление FileType
+            if (mimeType.StartsWith("image/"))
+            {
+                return FileType.Image;
+            }
+
+            if (mimeType.StartsWith("video/"))
+            {
+                return FileType.Video;
+            }
+
+            if (mimeType.StartsWith("audio/"))
+            {
+                // Нюанс: Как отличить аудиофайл от голосового (Voice)?
+                // В мессенджерах голосовые обычно записываются в форматах .opus, .ogg, .aac, .m4a
+                // Самый надежный маркер в рамках вашего ТЗ — если у файла специфическое расширение, 
+                // либо если в запросе для этого файла передан waveform.
+                // Пока для базовой логики вернем Voice, если расширение типично для диктофона, либо оставьте ваш тип Audio.
+                var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                if (ext == ".opus" || ext == ".m4a" || ext == ".aac" || mimeType.Contains("opus"))
+                {
+                    return FileType.Voice;
+                }
+
+                return FileType.Voice; // Подставьте ваше перечисление, например FileType.Audio или FileType.Voice
+            }
+
+            // 4. Для всех остальных типов документов (pdf, docx, zip, txt) возвращаем общий тип
+            return FileType.File;
+        }
+
         [HttpPost("upload-multiple")] // Меняем роут, чтобы не ломать старый метод, либо заменяем его
         public async Task<ActionResult<UploadMultipleFilesResponse>> UploadMultipleFiles(
             List<IFormFile> files, // Принимаем коллекцию файлов
-            [FromForm][Required] string type,
             [FromForm] Guid? conversationId = null,
             [FromForm] List<string>? waveforms = null, // Массив строк-JSON вевйвформов в порядке файлов
             CancellationToken ct = default)
         {
             var userId = HttpContext.GetCurrentUserId();
             var response = new UploadMultipleFilesResponse();
-
-            // 1. Проверка общего типа для всей пачки
-            if (!Enum.TryParse<FileType>(type, true, out var fileType))
-                return UnprocessableEntity(new { error = new { code = "INVALID_FORMAT", message = $"Неверный тип: {type}" } });
 
             // 2. Проверка наличия файлов
             if (files == null || files.Count == 0)
@@ -230,6 +272,8 @@ namespace IDMChat.Controllers
             {
                 var file = files[i];
                 if (file.Length == 0) continue;
+
+                FileType fileType = DetermineFileType(file);
 
                 // --- ВАЛИДАЦИЯ WAVEFORM ДЛЯ КОНКРЕТНОГО ФАЙЛА ---
                 string? validatedWaveformJson = null;

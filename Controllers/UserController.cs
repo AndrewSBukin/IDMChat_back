@@ -1,12 +1,14 @@
 ﻿using Asp.Versioning;
 using BCrypt.Net;
 using IDMChat.DTO;
+using IDMChat.Hubs;
 using IDMChat.Middleware;
 using IDMChat.Models;
 using IDMChat.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -19,17 +21,19 @@ using System.Text;
 [ApiVersion("1.0")]
 public class UsersController : ControllerBase
 {
-    private readonly ChatDbContext _dbContext;
     private readonly IConfiguration _config; 
+    private readonly ChatDbContext _dbContext;
     private readonly ChatStateCache _chatCache;
     private readonly UserCache _userCache;
+    private readonly IHubContext<ChatHub> _hubContext;
 
-    public UsersController(ChatDbContext dbContext, IConfiguration configuration, ChatStateCache chatCache, UserCache userCache)
+    public UsersController(ChatDbContext dbContext, IConfiguration configuration, ChatStateCache chatCache, UserCache userCache, IHubContext<ChatHub> hubContext)
     {
         _dbContext = dbContext;
         _config = configuration;
         _chatCache = chatCache;
         _userCache = userCache;
+        _hubContext = hubContext;
     }
 
 
