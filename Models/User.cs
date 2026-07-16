@@ -11,6 +11,7 @@ namespace IDMChat.Models
     [Index(nameof(Email))]
     [Index(nameof(Phone))]
     [Index(nameof(IsOnline))]
+    [Index(nameof(IdmUserId), IsUnique = true, Name = "IX_Users_IdmUserId")]
     public class User
     {
         [Key]
@@ -69,6 +70,11 @@ namespace IDMChat.Models
 
         [MaxLength(10)]
         public string? Theme { get; set; } = "system";
+
+        public int? IdmUserId { get; set; }
+
+        [Required]
+        public bool IsDisplayNameCustom { get; set; } = false;
 
         [InverseProperty(nameof(RefreshToken.User))]
         public virtual ICollection<RefreshToken> RefreshTokens { get; set; }

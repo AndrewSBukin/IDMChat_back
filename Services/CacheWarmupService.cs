@@ -29,7 +29,7 @@ namespace IDMChat.Services
 
                 // Вытаскиваем из базы строго три поля, отсекая удаленных
                 var users = await db.Users
-                    .Select(u => new UserCache.CachedUser(u.Id, u.DisplayName, u.AvatarUrl, u.CustomStatus, u.LastSeenAt))
+                    .Select(u => new UserCache.CachedUser(u.Id, u.DisplayName, u.AvatarUrl, u.CustomStatus, u.LastSeenAt, u.IdmUserId))
                     .ToListAsync(cancellationToken);
 
                 // Вызываем ваш новый метод инициализации кэша

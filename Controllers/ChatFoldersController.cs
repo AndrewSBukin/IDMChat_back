@@ -97,6 +97,31 @@ namespace IDMChat.Controllers
                 return BadRequest(new { error = new { code = "FOLDER_LIMIT_EXCEEDED", message = "Можно создать максимум 20 папок" } });
             }
 
+            var uniqueChatIds = new List<Guid>();
+
+            if (dto.conversation_ids != null && dto.conversation_ids.Any())
+            {
+                // Исключаем дубликаты внутри запроса
+                uniqueChatIds = dto.conversation_ids.Distinct().ToList();
+
+                foreach (var chatId in uniqueChatIds)
+                {
+                    // Проверяем существование чата и состав участников через кэш
+                    var cachedChat = await _chatCache.GetConversationAsync(chatId);
+
+                    if (cachedChat == null)
+                    {
+                        return BadRequest(new { error = new { code = "CONVERSATION_NOT_FOUND", message = $"Диалог с ID {chatId} не найден" } });
+                    }
+
+                    // Проверяем, состоит ли текущий юзер в этом чате
+                    if (!cachedChat.Members.Contains(userId))
+                    {
+                        return StatusCode(403, new { error = new { code = "ACCESS_DENIED", message = $"Вы не являетесь участником чата {chatId}" } });
+                    }
+                }
+            }
+
             // 4. Вычисление автоматической позиции (position = max + 1 по Пункту 2.2)
             var maxPosition = await _db.ChatFolders
                 .Where(f => f.UserId == userId)
@@ -112,24 +137,24 @@ namespace IDMChat.Controllers
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
+            _db.ChatFolders.Add(newFolder);
+            await _db.SaveChangesAsync(ct);
 
             // 5. Привязка чатов (Пункт 2.2)
-            if (dto.conversation_ids != null && dto.conversation_ids.Any())
+            if (uniqueChatIds.Any())
             {
-                // Исключаем дубликаты ID чатов, если фронт случайно прислал одинаковые
-                var uniqueChatIds = dto.conversation_ids.Distinct().ToList();
-
                 newFolder.Items = uniqueChatIds.Select((chatId, index) => new ChatFolderItem
                 {
                     ConversationId = chatId,
                     Order = index,
                     IsPinned = false,
-                    PinnedOrder = 0
+                    PinnedOrder = 0, 
+                    FolderId = newFolder.Id
                 }).ToList();
             }
 
             // Сохраняем в базу данных
-            _db.ChatFolders.Add(newFolder);
+            //_db.ChatFolderItems.Add(newFolder.Items.ToList());
             await _db.SaveChangesAsync(ct);
 
             // 6. Оповещаем все активные устройства пользователя через SignalR (Пункт 3 ТЗ)
@@ -265,6 +290,11 @@ namespace IDMChat.Controllers
             // 3. Пересчитываем положение папок по индексам в пришедшем массиве (Пункт 2.5 ТЗ)
             bool isAnyFolderUpdated = false;
 
+            var sqlBuilder = new System.Text.StringBuilder();
+            sqlBuilder.AppendLine("UPDATE [ChatFolders]");
+            sqlBuilder.AppendLine("SET [Position] = CASE [Id]");
+            var sqlParams = new List<Microsoft.Data.SqlClient.SqlParameter>();
+
             for (int i = 0; i < dto.folder_ids.Count; i++)
             {
                 var targetFolderId = dto.folder_ids[i];
@@ -278,16 +308,44 @@ namespace IDMChat.Controllers
                 // Обновляем Position только если он реально изменился, чтобы зря не дергать БД
                 if (folder.Position != i)
                 {
-                    folder.Position = i;
-                    folder.UpdatedAt = DateTime.UtcNow;
+                    string paramName = $"@p{i}";
+                    sqlBuilder.AppendLine($"WHEN {paramName} THEN {i}");
+                    sqlParams.Add(new Microsoft.Data.SqlClient.SqlParameter(paramName, System.Data.SqlDbType.UniqueIdentifier)
+                    {
+                        Value = dto.folder_ids[i]
+                    });
+                    //folder.Position = i;
+                    //folder.UpdatedAt = DateTime.UtcNow;
                     isAnyFolderUpdated = true;
                 }
             }
+            sqlBuilder.AppendLine("ELSE [Position] END,");
+
+            string updatedAtParamName = "@p_updated_at";
+            sqlBuilder.AppendLine($"[UpdatedAt] = {updatedAtParamName},");
+            sqlParams.Add(new Microsoft.Data.SqlClient.SqlParameter(updatedAtParamName, System.Data.SqlDbType.DateTime2)
+            {
+                Value = DateTime.UtcNow
+            });
+
+            // Явно добавляем параметр UserId как UNIQUEIDENTIFIER (Guid)
+            string userIdParamName = "@p_user_id";
+            sqlBuilder.AppendLine($"WHERE [UserId] = {userIdParamName}"); // Добавляем фиктивное поле перед WHERE, если запятая осталась, либо убираем её из конструкции выше
+            sqlParams.Add(new Microsoft.Data.SqlClient.SqlParameter(userIdParamName, System.Data.SqlDbType.UniqueIdentifier)
+            {
+                Value = userId
+            });
+
+            string finalSql = sqlBuilder.ToString()
+                .Replace(",\r\nWHERE", "\r\nWHERE")
+                .Replace(",\nWHERE", "\nWHERE");
 
             // 4. Сохраняем изменения в БД, если были реальные сдвиги
             if (isAnyFolderUpdated)
             {
-                await _db.SaveChangesAsync(ct);
+                await _db.Database.ExecuteSqlRawAsync(finalSql, sqlParams, ct);
+                _db.ChangeTracker.Clear();
+                //await _db.SaveChangesAsync(ct);
             }
 
             // 5. Оповещаем все активные устройства пользователя через SignalR (Пункт 3 ТЗ)

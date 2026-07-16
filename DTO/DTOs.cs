@@ -520,4 +520,21 @@ namespace IDMChat.DTO
     }
 
     #endregion
+
+    #region IDM integration
+    public class IdmVerifyRequestDto
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+
+    // Пакет с данными, которые ИДМ вернет чату при успешной проверке
+    public class IdmAuthResultDto
+    {
+        public int UserId { get; set; }
+        public string FullName { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;       // Роль пользователя в ИДМ ("Admin" / "User")
+        public string CompanyCode { get; set; } = string.Empty; // Тот самый `idm` код компании
+    }
+    #endregion
 }

@@ -167,6 +167,11 @@ namespace IDMChat
             builder.Services.AddHttpContextAccessor();
             builder.Services.AddScoped<IChatPathUrlResolver, ChatPathUrlResolver>();
 
+            //builder.Services.Configure<ExceptionHandlerOptions>(options =>
+            //{
+            //    options.AllowStatusCode404Response = true; // Разрешаем нашему хендлеру отдавать 404 статус
+            //});
+
             builder.Logging.AddConsole();
             builder.Logging.AddDebug(); // <-- ВАЖНО для вывода в VS
             builder.Logging.AddEventSourceLogger();
@@ -193,27 +198,22 @@ namespace IDMChat
 
             var app = builder.Build();
 
-            //if (app.Environment.IsDevelopment())
+            app.Use(async (context, next) =>
             {
-                app.UseSwagger();
-                app.UseSwaggerUI(options =>
+                try
                 {
-                    options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
-                    //options.SwaggerEndpoint("/swagger/v2/swagger.json", "v2");
-                });
-            }
-
-            app.UseMiddleware<LoggingMiddleware>();
-
-            app.UseExceptionHandler(errorApp =>
-            {
-                errorApp.Run(async context =>
+                    // Пропускаем запрос дальше по конвейеру к контроллерам
+                    await next();
+                }
+                catch (Exception exception)
                 {
-                    var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
-
+                    // Сюда прилетят абсолютно ВСЕ необработанные ошибки вашего приложения
                     var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-                    logger.LogError(exception, "Unhandled exception");
+                    logger.LogError(exception, "Unhandled exception captured by Custom Middleware");
 
+                    context.Response.ContentType = "application/json";
+
+                    // Полностью сохраняем вашу логику свитч-кейсов и статус-кодов!
                     if (exception is RateLimitException rateLimitEx)
                     {
                         context.Response.StatusCode = 429;
@@ -226,12 +226,10 @@ namespace IDMChat
                             retryAfter = rateLimitEx.RetryAfterSeconds
                         });
                     }
-                    else if(exception is UnauthorizedAccessException)
+                    else if (exception is UnauthorizedAccessException)
                     {
                         var ex = exception as UnauthorizedAccessException;
                         context.Response.StatusCode = 403;
-                        context.Response.ContentType = "application/json";
-
                         await context.Response.WriteAsJsonAsync(ex.Message);
                     }
                     else
@@ -242,17 +240,75 @@ namespace IDMChat
                             ForbiddenException => (403, "FORBIDDEN", exception.Message),
                             ValidationException => (400, "VALIDATION_ERROR", exception.Message),
                             UnauthorizedException => (401, "UNAUTHORIZED", "Требуется авторизация"),
-                            //_ => (500, "INTERNAL_ERROR", "Ошибка сервера")
                             _ => (500, "INTERNAL_ERROR", exception?.ToString())
                         };
 
                         context.Response.StatusCode = statusCode;
-                        context.Response.ContentType = "application/json";
-                                                
                         await context.Response.WriteAsJsonAsync(new { code, message });
                     }
-                });
+                }
             });
+
+            //if (app.Environment.IsDevelopment())
+            {
+                app.UseSwagger();
+                app.UseSwaggerUI(options =>
+                {
+                    options.SwaggerEndpoint("/swagger/v1/swagger.json", "v1");
+                    //options.SwaggerEndpoint("/swagger/v2/swagger.json", "v2");
+                });
+            }
+
+            app.UseMiddleware<LoggingMiddleware>();
+
+            //app.UseExceptionHandler(errorApp =>
+            //{
+            //    errorApp.Run(async context =>
+            //    {
+            //        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+
+            //        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            //        logger.LogError(exception, "Unhandled exception");
+
+            //        if (exception is RateLimitException rateLimitEx)
+            //        {
+            //            context.Response.StatusCode = 429;
+            //            context.Response.Headers.RetryAfter = rateLimitEx.RetryAfterSeconds.ToString();
+
+            //            await context.Response.WriteAsJsonAsync(new
+            //            {
+            //                code = "RATE_LIMIT",
+            //                message = rateLimitEx.Message,
+            //                retryAfter = rateLimitEx.RetryAfterSeconds
+            //            });
+            //        }
+            //        else if(exception is UnauthorizedAccessException)
+            //        {
+            //            var ex = exception as UnauthorizedAccessException;
+            //            context.Response.StatusCode = 403;
+            //            context.Response.ContentType = "application/json";
+
+            //            await context.Response.WriteAsJsonAsync(ex.Message);
+            //        }
+            //        else
+            //        {
+            //            var (statusCode, code, message) = exception switch
+            //            {
+            //                NotFoundException => (404, "NOT_FOUND", exception.Message),
+            //                ForbiddenException => (403, "FORBIDDEN", exception.Message),
+            //                ValidationException => (400, "VALIDATION_ERROR", exception.Message),
+            //                UnauthorizedException => (401, "UNAUTHORIZED", "Требуется авторизация"),
+            //                //_ => (500, "INTERNAL_ERROR", "Ошибка сервера")
+            //                _ => (500, "INTERNAL_ERROR", exception?.ToString())
+            //            };
+
+            //            context.Response.StatusCode = statusCode;
+            //            context.Response.ContentType = "application/json";
+                                                
+            //            await context.Response.WriteAsJsonAsync(new { code, message });
+            //        }
+            //    });
+            //});
 
             app.UseHttpsRedirection();
             app.UseCors("AllowClient");

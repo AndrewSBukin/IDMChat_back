@@ -7,17 +7,19 @@ namespace IDMChat.Utils
     public class UserCache
     {
         public record CachedUser(
-            Guid Id, 
-            string DisplayName, 
-            string? AvatarUrl, 
-            string? CustomStatus, 
-            DateTime LastSeenAt
+            Guid Id,
+            string DisplayName,
+            string? AvatarUrl,
+            string? CustomStatus,
+            DateTime LastSeenAt,
+            int? IdmUserId
         );
 
         private readonly ConcurrentDictionary<Guid, string> _connections = new();
         private readonly ConcurrentDictionary<Guid, bool> _onlineStatus = new();
         private readonly ConcurrentDictionary<Guid, CachedUser> _userData = new();
         private readonly ConcurrentDictionary<Guid, Guid> _activeChats = new();
+        private readonly ConcurrentDictionary<int, Guid> _idmToGuidMap = new();
 
         public void AddConnection(Guid userId, string connectionId)
         {
@@ -53,16 +55,33 @@ namespace IDMChat.Utils
             foreach (var user in users)
             {
                 _userData[user.Id] = user;
+                if (user.IdmUserId.HasValue)
+                {
+                    _idmToGuidMap.TryAdd(user.IdmUserId.Value, user.Id);
+                }
             }
         }
-        public void AddOrUpdateUser(Guid userId, string displayName, string? avatarUrl, string? customStatus, DateTime lasSeenAt)
+        public void AddOrUpdateUser(Guid userId, string displayName, string? avatarUrl, string? customStatus, DateTime lasSeenAt, int? idmUserId = null)
         {
-            _userData[userId] = new CachedUser(userId, displayName, avatarUrl, customStatus, lasSeenAt);
+            _userData[userId] = new CachedUser(userId, displayName, avatarUrl, customStatus, lasSeenAt, idmUserId);
+            if (idmUserId.HasValue)
+            {
+                _idmToGuidMap[idmUserId.Value] = userId;
+            }
         }
 
         public CachedUser? GetUser(Guid userId)
         {
             return _userData.TryGetValue(userId, out var user) ? user : null;
+        }
+
+        public Guid? GetChatUserIdByIdmId(int idmUserId)
+        {
+            if (_idmToGuidMap.TryGetValue(idmUserId, out var guid))
+            {
+                return guid;
+            }
+            return null;
         }
 
         public string GetDisplayName(Guid userId)
