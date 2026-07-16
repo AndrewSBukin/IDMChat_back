@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace IDMChat.Controllers
 {
-    [Route("api/chat-folders")]
+    [Route("api/v{version:apiVersion}/chat-folders")]
     [ApiController]
     public class ChatFoldersController : ControllerBase
     {
@@ -410,6 +410,24 @@ namespace IDMChat.Controllers
             {
                 var currentFolderDto = MapToFolderDto(folder);
                 return Ok(currentFolderDto);
+            }
+
+            // 2. ВАЛИДАЦИЯ СУЩЕСТВОВАНИЯ И ДОСТУПА В КЭШЕ (Исправляем ошибку Foreign Key!)
+            foreach (var chatId in incomingNewChatIds)
+            {
+                var cachedChat = await _chatCache.GetConversationAsync(chatId);
+
+                // Если чата вообще нет в базе (тот самый случай ошибки FK)
+                if (cachedChat == null)
+                {
+                    return BadRequest(new { error = new { code = "CONVERSATION_NOT_FOUND", message = $"Диалог с ID {chatId} не существует" } });
+                }
+
+                // Если чат есть, но текущий пользователь из него вышел или не имеет доступа
+                if (!cachedChat.Members.Contains(userId))
+                {
+                    return StatusCode(403, new { error = new { code = "ACCESS_DENIED", message = $"Вы не являетесь участником чата {chatId}" } });
+                }
             }
 
             // 4. Проверяем жесткий лимит — максимум 200 чатов в папке (Пункт 4.1 ТЗ)

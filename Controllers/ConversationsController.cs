@@ -733,6 +733,8 @@ namespace IDMChat.Controllers
 
             _db.ConversationMembers.AddRange(newMembers);
 
+            await _db.SaveChangesAsync(ct);
+
             // Системное сообщение о добавлении
             var currentUserDisplayName = currentUser.DisplayName;
             var addedNames = await _db.Users
@@ -753,6 +755,7 @@ namespace IDMChat.Controllers
             };
 
             _db.Messages.Add(systemMessage);
+            await _db.SaveChangesAsync(ct);
 
             // Обновляем LastMessage
             conversation.LastMessageId = systemMessage.Id;
@@ -839,11 +842,11 @@ namespace IDMChat.Controllers
             if (userId == memberId)
                 return BadRequest(new { error = new { code = "CANNOT_REMOVE_SELF", message = "Используйте DELETE /conversations/{id} для выхода из группы" } });
 
-            bool isTargetOwner = conversation.OwnerId == memberId;
-            bool isTargetAdmin = targetMember.IsAdmin;
-
             if (targetMember == null)
                 return NotFound(new { error = new { code = "MEMBER_NOT_FOUND", message = "Участник не найден" } });
+
+            bool isTargetOwner = conversation.OwnerId == memberId;
+            bool isTargetAdmin = targetMember.IsAdmin;
 
             if (isTargetOwner)
                 return StatusCode(403, new { error = new { code = "CANNOT_REMOVE_OWNER", message = "Нельзя исключить владельца группы" } });
@@ -854,6 +857,7 @@ namespace IDMChat.Controllers
 
             // 6. Удаляем участника
             _db.ConversationMembers.Remove(targetMember);
+            await _db.SaveChangesAsync(ct);
 
             // --- ОЧИСТКА ЧАТА ИЗ ПАПОК ПОЛЬЗОВАТЕЛЯ
             await _db.ChatFolderItems
@@ -1063,7 +1067,7 @@ namespace IDMChat.Controllers
                     status = _userCache.IsOnline(m.UserId) ? "online" : "offline",
                     is_online = _userCache.IsOnline(m.UserId),
                     custom_status = uCache?.CustomStatus,
-                    last_seen_at = m.User.LastSeenAt,
+                    last_seen_at = uCache?.LastSeenAt,
                     role = calculatedRole,
                     joined_at = m.JoinedAt
                 };
@@ -1085,14 +1089,14 @@ namespace IDMChat.Controllers
             if (dto.role != "admin" && dto.role != "member" && dto.role != "owner")
                 return BadRequest(new { error = new { code = "INVALID_ROLE", message = "Допустимые роли: admin, member, owner" } });
 
-            var conversation = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == id, ct);
+            var conversation = await _db.Conversations.AsTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
             if (conversation == null) return NotFound();
 
             if (conversation.Type != ConversationType.group)
                 return BadRequest("Только для групповых чатов");
 
             var currentMember = await _db.ConversationMembers.FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == userId, ct);
-            var targetMember = await _db.ConversationMembers.FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == memberId, ct);
+            var targetMember = await _db.ConversationMembers.AsTracking().FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == memberId, ct);
 
             if (targetMember == null)
                 return NotFound(new { error = new { code = "MEMBER_NOT_FOUND", message = "Пользователь не является участником беседы" } });
@@ -1116,7 +1120,7 @@ namespace IDMChat.Controllers
                     return BadRequest("Пользователь уже является владельцем этой группы");
 
                 // Рокировка А: Находим старого владельца (текущего юзера) в участниках и делаем его просто админом
-                var previousOwnerMember = await _db.ConversationMembers
+                var previousOwnerMember = await _db.ConversationMembers.AsTracking()
                     .FirstOrDefaultAsync(cm => cm.ConversationId == id && cm.UserId == conversation.OwnerId, ct);
 
                 if (previousOwnerMember != null)
