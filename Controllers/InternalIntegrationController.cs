@@ -153,7 +153,7 @@ namespace IDMChat.Controllers
             var messageDto = new
             {
                 id = message.Id,
-                type = "system",
+                type = "text",
                 text = message.Text,
                 created_at = message.CreatedAt,
                 sender = new
@@ -184,7 +184,7 @@ namespace IDMChat.Controllers
             {
                 id = message.Id,
                 text = truncatedText,
-                type = "system",
+                type = "text",
                 sender_id = message.SenderId,
                 sender_name = bot?.DisplayName ?? "",
                 created_at = message.CreatedAt,
