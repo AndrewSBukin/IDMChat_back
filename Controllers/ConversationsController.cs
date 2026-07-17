@@ -1188,9 +1188,12 @@ namespace IDMChat.Controllers
                 };
             }
 
+            await _db.SaveChangesAsync(ct);
+
             if (systemMessage != null)
             {
                 _db.Messages.Add(systemMessage);
+                await _db.SaveChangesAsync(ct);
 
                 conversation.LastMessageId = systemMessage.Id;
                 conversation.LastMessageText = systemMessage.Text.Length > 100 ? systemMessage.Text[..100] + "..." : systemMessage.Text;
