@@ -40,6 +40,7 @@ namespace IDMChat.Controllers
         private readonly UserCache _userCache;
         private readonly IHubContext<ChatHub> _hubContext;
         private readonly IChatPathUrlResolver _urlResolver;
+        private readonly INewMessageService _newMessageService;
         private readonly string _storageBasePath;
 
         public ConversationsController(
@@ -48,7 +49,8 @@ namespace IDMChat.Controllers
             ChatStateCache cache, UserCache ucache,
             IHubContext<ChatHub> hubContext, 
             IConfiguration configuration,
-            IChatPathUrlResolver urlResolver)
+            IChatPathUrlResolver urlResolver, 
+            INewMessageService newMessageService)
         {
             _db = dbContext;
             _logger = logger;
@@ -57,6 +59,7 @@ namespace IDMChat.Controllers
             _hubContext = hubContext;
             _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
             _urlResolver = urlResolver;
+            _newMessageService = newMessageService;
         }
 
         #region Conversations
@@ -743,31 +746,8 @@ namespace IDMChat.Controllers
                 .Select(u => u.DisplayName)
                 .ToListAsync(ct);
 
-            var systemMessage = new Message
-            {
-                ConversationId = id,
-                SenderId = userId,
-                Text = $"{currentUser.DisplayName} добавил(а): {string.Join(", ", addedNames)}",
-                Type = MessageType.System,
-                CreatedAt = DateTime.UtcNow,
-                SentAt = DateTime.UtcNow,
-                IsDeleted = false,
-                ChannelId = 0
-            };
+            await _newMessageService.HandleSendSystemMessage(id, $"{currentUser.DisplayName} добавил(а): {string.Join(", ", addedNames)}", ct);
 
-            _db.Messages.Add(systemMessage);
-            await _db.SaveChangesAsync(ct);
-
-            // Обновляем LastMessage
-            conversation.LastMessageId = systemMessage.Id;
-            conversation.LastMessageText = systemMessage.Text.Length > 100
-                ? systemMessage.Text[..100] + "..."
-                : systemMessage.Text;
-            conversation.LastMessageSenderId = userId;
-            conversation.LastMessageCreatedAt = systemMessage.CreatedAt;
-            conversation.UpdatedAt = systemMessage.CreatedAt;
-
-            await _db.SaveChangesAsync(ct);
 
             var resultList = new List<MemberResponse>();
             foreach (var m in newMembers)
@@ -869,32 +849,7 @@ namespace IDMChat.Controllers
             // 7. Системное сообщение
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
             var removedUser = await _db.Users.FindAsync(new object[] { memberId }, ct);
-
-            var systemMessage = new Message
-            {
-                ConversationId = id,
-                SenderId = userId,
-                Text = $"{currentUser.DisplayName} удалил(а) {removedUser?.DisplayName ?? memberId.ToString()}",
-                Type = MessageType.System,
-                CreatedAt = DateTime.UtcNow,
-                SentAt = DateTime.UtcNow,
-                IsDeleted = false,
-                ChannelId = 0
-            };
-
-            _db.Messages.Add(systemMessage);
-            await _db.SaveChangesAsync(ct);
-
-            // 8. Обновляем LastMessage
-            conversation.LastMessageId = systemMessage.Id;
-            conversation.LastMessageText = systemMessage.Text.Length > 100
-                ? systemMessage.Text[..100] + "..."
-                : systemMessage.Text;
-            conversation.LastMessageSenderId = userId;
-            conversation.LastMessageCreatedAt = systemMessage.CreatedAt;
-            conversation.UpdatedAt = systemMessage.CreatedAt;
-
-            await _db.SaveChangesAsync(ct);
+            await _newMessageService.HandleSendSystemMessage(id, $"{currentUser.DisplayName} удалил(а) {removedUser?.DisplayName ?? memberId.ToString()}", ct);
 
             await _hubContext.Clients.Group(id.ToString()).SendAsync("members_removed", new { conversation_id = id, member_ids = new[] { memberId }, removed_by = userId });
 
@@ -956,29 +911,7 @@ namespace IDMChat.Controllers
                 .ExecuteDeleteAsync(ct);
 
             // 5. Генерируем системное сообщение о том, что пользователь вышел сам
-            var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
-            var systemMessage = new Message
-            {
-                ConversationId = id,
-                SenderId = userId,
-                Text = $"Пользователь {currentUser?.DisplayName } покинул(а) группу",
-                Type = MessageType.System,
-                CreatedAt = DateTime.UtcNow,
-                SentAt = DateTime.UtcNow,
-                IsDeleted = false,
-                ChannelId = 0
-            };
-            _db.Messages.Add(systemMessage);
-
-            // 6. Обновляем LastMessage чата
-            conversation.LastMessageId = systemMessage.Id;
-            conversation.LastMessageText = systemMessage.Text;
-            conversation.LastMessageSenderId = userId;
-            conversation.LastMessageCreatedAt = systemMessage.CreatedAt;
-            conversation.UpdatedAt = systemMessage.CreatedAt;
-
-            await _db.SaveChangesAsync(ct);
-
+            await _newMessageService.HandleSendSystemMessage(id, $"Пользователь {_userCache.GetDisplayName(userId)} покинул(а) группу", ct);
 
             await _hubContext.Clients.Group(id.ToString()).SendAsync("members_removed", new
             {
@@ -1118,9 +1051,9 @@ namespace IDMChat.Controllers
             if (!isCallerOwner)
                 return StatusCode(403, new { error = new { code = "FORBIDDEN", message = "Только владелец группы может управлять ролями администраторов" } });
 
-            Message? systemMessage = null;
             var oldOwnerUser = _userCache.GetUser(userId);
             var targetUser = _userCache.GetUser(memberId);
+            string systemMessage = "";
 
 
             // ----------------------------------------
@@ -1143,17 +1076,7 @@ namespace IDMChat.Controllers
                 targetMember.IsAdmin = true;
 
                 // Формируем системный текст для записи в историю чата
-                systemMessage = new Message
-                {
-                    ConversationId = id,
-                    SenderId = userId,
-                    Text = $"{oldOwnerUser?.DisplayName} передал(а) права владельца группы пользователю {targetUser?.DisplayName}",
-                    Type = MessageType.System,
-                    CreatedAt = DateTime.UtcNow,
-                    SentAt = DateTime.UtcNow,
-                    IsDeleted = false,
-                    ChannelId = 0
-                };
+                systemMessage = $"{oldOwnerUser?.DisplayName} передал(а) права владельца группы пользователю {targetUser?.DisplayName}";
             }
             else if (dto.role == "admin")
             {
@@ -1162,17 +1085,7 @@ namespace IDMChat.Controllers
 
                 targetMember.IsAdmin = true;
 
-                systemMessage = new Message
-                {
-                    ConversationId = id,
-                    SenderId = userId,
-                    Text = $"{oldOwnerUser?.DisplayName} назначил(а) участника {targetUser?.DisplayName} администратором",
-                    Type = MessageType.System,
-                    CreatedAt = DateTime.UtcNow,
-                    SentAt = DateTime.UtcNow,
-                    IsDeleted = false,
-                    ChannelId = 0
-                };
+                systemMessage = $"{oldOwnerUser?.DisplayName} назначил(а) участника {targetUser?.DisplayName} администратором";
             }
             else if (dto.role == "member")
             {
@@ -1184,36 +1097,11 @@ namespace IDMChat.Controllers
 
                 targetMember.IsAdmin = false;
 
-                systemMessage = new Message
-                {
-                    ConversationId = id,
-                    SenderId = userId,
-                    Text = $"{oldOwnerUser?.DisplayName} лишил(а) участника {targetUser?.DisplayName} прав администратора",
-                    Type = MessageType.System,
-                    CreatedAt = DateTime.UtcNow,
-                    SentAt = DateTime.UtcNow,
-                    IsDeleted = false,
-                    ChannelId = 0
-                };
+                systemMessage = $"{oldOwnerUser?.DisplayName} лишил(а) участника {targetUser?.DisplayName} прав администратора";
             }
-
             await _db.SaveChangesAsync(ct);
 
-            if (systemMessage != null)
-            {
-                _db.Messages.Add(systemMessage);
-                await _db.SaveChangesAsync(ct);
-
-                conversation.LastMessageId = systemMessage.Id;
-                conversation.LastMessageText = systemMessage.Text.Length > 100 ? systemMessage.Text[..100] + "..." : systemMessage.Text;
-                conversation.LastMessageSenderId = userId;
-                conversation.LastMessageCreatedAt = systemMessage.CreatedAt;
-                conversation.UpdatedAt = systemMessage.CreatedAt;
-            }
-
-            await _db.SaveChangesAsync(ct);
-
-            _chatCache.Invalidate(id); // Обнуляем кэш синглтона чата
+            await _newMessageService.HandleSendSystemMessage(id, systemMessage, ct);
 
             // Формируем MemberResponse по ТЗ (Пункт 12.2)
             var uCache = _userCache.GetUser(memberId);

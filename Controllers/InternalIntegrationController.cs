@@ -24,14 +24,16 @@ namespace IDMChat.Controllers
         private readonly UserCache _userCache;
         private readonly IHubContext<ChatHub> _hubContext;
         private readonly IChatPathUrlResolver _urlResolver;
+        private readonly INewMessageService _newMessageService;
 
-        public InternalIntegrationController(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, IHubContext<ChatHub> hubContext, IChatPathUrlResolver urlResolver)
+        public InternalIntegrationController(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, IHubContext<ChatHub> hubContext, IChatPathUrlResolver urlResolver, INewMessageService newMessageService)
         {
             _dbContext = dbContext;
             _chatCache = chatCache;
             _userCache = userCache;
             _hubContext = hubContext;
             _urlResolver = urlResolver;
+            _newMessageService = newMessageService;
         }
 
         // Вспомогательный метод сквозной проверки ключа ИДМ
@@ -124,87 +126,18 @@ namespace IDMChat.Controllers
                 return Ok(new { success = false, message = "Маппинг не настроен. Пропущено." });
             }
 
-            var message = new Message
+            var msg = new ChatHub.NewMessageRequest()
             {
-                ConversationId = mapping.ConversationId,
-                SenderId = Guid.Parse("00000000-0000-0000-0000-000000000001"), // Системная авто-рассылка
-                Text = dto.text.Trim(),
-                Type = MessageType.Text,
-                CreatedAt = DateTime.UtcNow,
-                IsDeleted = false
+                conversation_id = mapping.ConversationId,
+                text = dto.text.Trim(),
+                type = "text", 
+                temp_id = Guid.NewGuid(), 
+                attachment_ids = new List<Guid>(), 
+                mentions = new List<ChatHub.MentionItem>(), 
+                reply_to_message_id = null
             };
-
-            _dbContext.Messages.Add(message);
-            await _dbContext.SaveChangesAsync(ct);
-
-            // Обновляем LastMessage диалога
-            var conversation = await _dbContext.Conversations.AsTracking().FirstOrDefaultAsync(c => c.Id == mapping.ConversationId, ct);
-            if (conversation != null)
-            {
-                conversation.LastMessageId = message.Id;
-                conversation.UpdatedAt = DateTime.UtcNow;
-            }
-
-            await _dbContext.SaveChangesAsync(ct);
-            _chatCache.Invalidate(mapping.ConversationId);
-
-            // Публикуем сообщение в SignalR онлайн-участникам чата
-            var bot = _userCache.GetUser(message.SenderId);
-            var messageDto = new
-            {
-                id = message.Id,
-                type = "text",
-                text = message.Text,
-                created_at = message.CreatedAt,
-                sender = new
-                {
-                    id = message.SenderId,
-                    display_name = bot?.DisplayName,
-                    avatar_url = _urlResolver.ResolveUrl(bot?.AvatarUrl),
-                    status = "online",
-                    is_online = true,
-                    custom_status = bot?.CustomStatus,
-                    last_seen_at = bot?.LastSeenAt
-                },
-                reply_to = (object)null,
-                attachments = new List<AttachmentDto>(),
-                mentions = new List<UserMention>()
-            };
-
-            await _hubContext.Clients.Group(mapping.ConversationId.ToString()).SendAsync("message_new", new
-            {
-                conversation_id = mapping.ConversationId.ToString(),
-                message = messageDto
-            }, ct);
-
-            var truncatedText = (message.Text ?? string.Empty).Length > 100 ? message.Text[..100] + "..." : (message.Text ?? string.Empty);
-            var chat = await _chatCache.GetConversationAsync(conversation.Id);
-            var onlineMembers = _userCache.GetOnlineMembers(chat.Members).ToList();
-            var lastMessagePreview = new LastMessageDto
-            {
-                id = message.Id,
-                text = truncatedText,
-                type = "text",
-                sender_id = message.SenderId,
-                sender_name = bot?.DisplayName ?? "",
-                created_at = message.CreatedAt,
-                attachments = new List<AttachmentDto>(),
-                mentions = new List<UserMention>()
-            };
-
-            var groupUpdateDto = new ConversationUpdatedDto
-            {
-                id = conversation.Id,
-                type = conversation.Type.ToString().ToLower(),
-                name = conversation.Name,
-                avatar_url = _urlResolver.ResolveUrl(conversation.AvatarUrl) ?? "",
-                last_message = lastMessagePreview,
-                updated_at = message.CreatedAt
-            };
-
-            var onlineUserStrings = onlineMembers.Select(id => id.ToString()).ToList();
-            await _hubContext.Clients.Users(onlineUserStrings).SendAsync("conversation_updated", groupUpdateDto, ct);
-
+            await _newMessageService.HandleSendMessage(msg, Guid.Parse("00000000-0000-0000-0000-000000000001"), ct);
+            
             return Ok(new { success = true });
         }
     }

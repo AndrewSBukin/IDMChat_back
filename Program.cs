@@ -173,6 +173,7 @@ namespace IDMChat
             });
             builder.Services.AddHttpContextAccessor();
             builder.Services.AddScoped<IChatPathUrlResolver, ChatPathUrlResolver>();
+            builder.Services.AddScoped<INewMessageService, NewMessageService>();
 
             //builder.Services.Configure<ExceptionHandlerOptions>(options =>
             //{
