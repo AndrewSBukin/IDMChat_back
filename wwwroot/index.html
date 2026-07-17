@@ -41,11 +41,13 @@
             "message_deleted",
             "message_edited",
             "ReactionAdded",
-            "ReactionRemoved"
+            "ReactionRemoved",
+            "members_removed",
+            "MemberRoleChanged"
         ]
 
         async function login1() {
-            let data = await call("auth/login", { username: "string", password: "string" }, 'POST');
+            let data = await call("auth/login", { username: "admin", password: "Qq!11113" }, 'POST');
             if (data) {
                 token1 = data.access_token
                 document.getElementById("key1").value = token1;

@@ -677,11 +677,19 @@ namespace IDMChat.Controllers
                     .ToList()
             }).ToList();
 
+            var allPinnedIds = await _db.ConversationMembers
+                .AsNoTracking()
+                .Where(cm => cm.UserId == userId && cm.IsPinned)
+                .OrderBy(cm => cm.PinnedOrder) // Сортируем строго в кастомном порядке drag-and-drop
+                .Select(cm => cm.ConversationId)
+                .ToListAsync(ct);
+
             // 3. Отправляем ВСЕМ активным устройствам данного конкретного пользователя (Clients.User)
             // Название события строго по ТЗ: "folders_changed"
             await _hubContext.Clients.User(userId.ToString()).SendAsync("folders_changed", new
             {
-                folders = folderDtos
+                folders = folderDtos,
+                all_folder_pinned_ids = allPinnedIds
             }, ct);
         }
     }

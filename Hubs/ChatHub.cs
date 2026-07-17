@@ -293,7 +293,7 @@ namespace IDMChat.Hubs
                     await _db.SaveChangesAsync(ct);
                 }
 
-                // 5. Обработка упоминаний (Mentions) — НАША НОВАЯ ФИЧА
+                // 5. Обработка упоминаний (Mentions)
                 var mentionsDto = new List<UserMention>();
                 if (msg.mentions != null && msg.mentions.Any())
                 {
@@ -529,6 +529,68 @@ namespace IDMChat.Hubs
                 throw new HubException("MESSAGE_SEND_FAILED", ex);
             }
         }
+        /*
+        private async Task HandleSendMessage(NewMessageRequest msg, Guid userId, CancellationToken ct)
+        {
+            // 6. Сохранение в БД
+            _db.Messages.Add(message);
+            await _db.SaveChangesAsync(ct); // message.Id заполняется
+
+            var linkRegex = new System.Text.RegularExpressions.Regex(
+                    @"https?://[^\s]+",
+                    System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            var linkMatches = linkRegex.Matches(message.Text);
+
+            // 2. Если ссылки найдены — пишем их в индексную таблицу
+            if (linkMatches.Count > 0)
+            {
+                // Используем Distinct, чтобы если юзер прислал две одинаковые ссылки в одном сообщении, база не ругалась на PK
+                var uniqueUrls = linkMatches.Cast<System.Text.RegularExpressions.Match>()
+                    .Select(m => m.Value)
+                    .Distinct()
+                    .ToList();
+
+                foreach (var url in uniqueUrls)
+                {
+                    _db.MessageLinks.Add(new MessageLink
+                    {
+                        MessageId = message.Id,
+                        ConversationId = message.ConversationId, // Берем из входящего запроса
+                        Url = url,
+                        CreatedAt = message.CreatedAt
+                    });
+                }
+
+                // Сохраняем пачкой. EF Core объединит эти инсерты в один легкий батч
+                await _db.SaveChangesAsync(ct);
+            }
+
+            var chat = await _chatCache.GetConversationAsync(message.ConversationId);
+
+            // 5. Обработка упоминаний (Mentions)
+            var mentionsDto = new List<UserMention>();
+            if (msg.mentions != null && msg.mentions.Any())
+            {
+                // Тегнуть можно только тех, кто состоит в этом чате (Валидация по кэшу чата в памяти)
+                var validMentions = msg.mentions
+                    .Where(m => chat.Members.Contains(m.user_id))
+                    .Distinct()
+                    .ToList();
+
+                if (validMentions.Any())
+                {
+                    foreach (var m in validMentions)
+                    {
+                        // Пишем связь в новую промежуточную таблицу (Запросы накопятся в контексте)
+                        _db.MessageMentions.Add(new MessageMention { MessageId = message.Id, UserId = m.user_id, DisplayName = m.display_name });
+
+                        mentionsDto.Add(new UserMention(m.user_id, m.display_name));
+                    }
+                    await _db.SaveChangesAsync(ct);
+                }
+            }
+        }*/
 
         [HubMethodName("PressButton")]
         public async Task<bool> HandleBotButtonClick(Guid conversationId, long messageId, string buttonValue)
