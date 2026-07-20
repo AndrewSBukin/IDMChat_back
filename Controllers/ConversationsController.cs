@@ -391,11 +391,11 @@ namespace IDMChat.Controllers
         }
         async Task<ConversationUpdatedDto> BuildConversationUpdatedDto(Conversation conversation, CancellationToken ct = default)
         {
-            var message = await _db.Messages.Include(m => m.Conversation).AsTracking()
+            var message = await _db.Messages.AsTracking()
                 .FirstOrDefaultAsync(m => m.Id == conversation.LastMessageId && m.ConversationId == conversation.Id, ct);
 
             var attachments = await _db.FileAttachments
-                .Where(a => a.MessageId == conversation.LastMessageId)
+                .Where(a => conversation.LastMessageId != null &&  a.MessageId == conversation.LastMessageId)
                 .Select(a => new AttachmentDto
                 {
                     id = a.Id,
@@ -413,16 +413,18 @@ namespace IDMChat.Controllers
                 var sender = _userCache.GetUser(conversation.LastMessageSenderId.Value);
                 sender_name = sender?.DisplayName;
             }
-            var lastMessagePreview = new LastMessageDto
-            {
-                id = message.Id,
-                text = conversation.LastMessageText ?? "",
-                type = message.Type.ToString().ToLower(),
-                sender_id = message.SenderId,
-                sender_name = sender_name ?? "ошибка получения имени  ",
-                created_at = message.CreatedAt,
-                attachments = attachments
-            };
+            LastMessageDto? lastMessagePreview = null;
+            if (message != null)
+                lastMessagePreview = new LastMessageDto
+                {
+                    id = message.Id,
+                    text = conversation.LastMessageText ?? "",
+                    type = message.Type.ToString().ToLower(),
+                    sender_id = message.SenderId,
+                    sender_name = sender_name ?? "ошибка получения имени  ",
+                    created_at = message.CreatedAt,
+                    attachments = attachments
+                };
 
             var conversationUpdatedDto = new ConversationUpdatedDto
             {
@@ -431,7 +433,7 @@ namespace IDMChat.Controllers
                 name = conversation.Name,
                 avatar_url = conversation.AvatarUrl,
                 last_message = lastMessagePreview,
-                updated_at = message.UpdatedAt
+                updated_at = message?.UpdatedAt
             };
             return conversationUpdatedDto;
         }
