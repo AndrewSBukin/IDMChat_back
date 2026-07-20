@@ -267,6 +267,10 @@ namespace IDMChat.Services
                 _chatCache.UpdateLastMessage(msg.conversation_id, message, truncatedText);
                 _chatCache.IncrementUnreadCounts(msg.conversation_id, userId);
 
+                // 8. Подтверждение отправителю
+                if (!isBotOrSystem(userId))
+                    await _hubContext.Clients.User(userId.ToString()).SendAsync("message_confirmed", new { message_id = message.Id, temp_id = msg.temp_id });
+
                 var sender = _userCache.GetUser(userId);
 
                 // 9. Рассылка остальным
