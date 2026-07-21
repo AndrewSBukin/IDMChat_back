@@ -79,7 +79,8 @@ namespace IDMChat.Controllers
                 {
                     cm.IsPinned,
                     cm.IsMuted,
-                    cm.UnreadCount,
+                    cm.UnreadCount, 
+                    cm.LastReadMessageId,
                     Conversation = cm.Conversation,
 
                     // Участники (только для group, для direct - все)
@@ -140,7 +141,8 @@ namespace IDMChat.Controllers
                 members = data.Members,
                 last_message = data.LastMessage,
                 unread_count = data.UnreadCount,
-                updated_at = data.Conversation.UpdatedAt
+                updated_at = data.Conversation.UpdatedAt, 
+                last_read_message_id = data.LastReadMessageId
             }).ToList();
 
             return Ok(new ConversationsResponse
@@ -163,7 +165,8 @@ namespace IDMChat.Controllers
                 {
                     cm.IsPinned,
                     cm.IsMuted,
-                    cm.UnreadCount,
+                    cm.UnreadCount, 
+                    cm.LastReadMessageId,
                     Conversation = cm.Conversation,
 
                     // Участники (только для group, для direct - все)
@@ -219,7 +222,8 @@ namespace IDMChat.Controllers
                 members = data.Members,
                 last_message = data.LastMessage,
                 unread_count = data.UnreadCount,
-                updated_at = data.Conversation.UpdatedAt
+                updated_at = data.Conversation.UpdatedAt, 
+                last_read_message_id = data.LastReadMessageId
             }).ToList();
 
             return Ok(new ConversationsResponse
@@ -2928,7 +2932,8 @@ namespace IDMChat.Controllers
                 {
                     cm.IsPinned,
                     cm.IsMuted,
-                    cm.UnreadCount,
+                    cm.UnreadCount, 
+                    cm.LastReadMessageId,
                     Conversation = cm.Conversation,
                     cm.JoinedAt,
 
@@ -3035,7 +3040,8 @@ namespace IDMChat.Controllers
                 members = membersList,
                 last_message = lastMessageDto,
                 unread_count = data.UnreadCount,
-                updated_at = data.Conversation.UpdatedAt
+                updated_at = data.Conversation.UpdatedAt, 
+                last_read_message_id = data.LastReadMessageId
             };
         }
 

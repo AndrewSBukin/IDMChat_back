@@ -235,6 +235,7 @@ namespace IDMChat.DTO
         public bool is_pinned { get; set; }
         public bool is_muted { get; set; }
         public int unread_count { get; set; }
+        public long? last_read_message_id { get; set; }
     }
 
     public class MemberResponse

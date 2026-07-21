@@ -13,6 +13,7 @@ namespace IDMChat.Services
     public interface INewMessageService
     {
         Task<Message?> HandleSendMessage(NewMessageRequest msg, Guid userId, CancellationToken ct = default);
+        Task<Message?> HandleUpdateMessage(NewMessageRequest msg, Guid userId, CancellationToken ct = default);
         Task<Message?> HandleSendSystemMessage(Guid conversationId, string text, CancellationToken ct = default);
     }
 
@@ -426,6 +427,11 @@ namespace IDMChat.Services
                 _logger.LogError(ex, "Error sending message to {ConversationId} {message}", msg.conversation_id, ex.Message);
                 throw new HubException("MESSAGE_SEND_FAILED", ex);
             }
+        }
+
+        public async Task<Message?> HandleUpdateMessage(NewMessageRequest msg, Guid userId, CancellationToken ct = default)
+        {
+            return null;
         }
     }
 }
