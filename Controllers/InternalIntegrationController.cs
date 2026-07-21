@@ -222,13 +222,38 @@ namespace IDMChat.Controllers
                                 var mediaInfo = await FFProbe.AnalyseAsync(sourceFilePath);
                                 duration = (int)mediaInfo.Duration.TotalSeconds;
                             }
+
+                            string normalizedSourcePath = sourceFilePath.Replace('/', Path.DirectorySeparatorChar)
+                                             .Replace('\\', Path.DirectorySeparatorChar);
+
                             // Сборка путей через символьную ссылку mklink
                             string searchToken = "uploads" + Path.DirectorySeparatorChar;
-                            int indexToken = sourceFilePath.IndexOf(searchToken, StringComparison.OrdinalIgnoreCase);
-                            string relativeStoragePath = sourceFilePath.Substring(indexToken + searchToken.Length).Replace('\\', '/');
+                            int indexToken = normalizedSourcePath.IndexOf(searchToken, StringComparison.OrdinalIgnoreCase);
+                            string relativeStoragePath;
+                            string relativeThumbnailPath;
 
-                            int lastDotIndex = relativeStoragePath.LastIndexOf('.');
-                            string relativeThumbnailPath = relativeStoragePath.Substring(0, lastDotIndex) + "_thumb.jpg";
+                            if (indexToken != -1)
+                            {
+                                // КЕЙС А: Папка uploads найдена — вырезаем относительный веб-путь
+                                string rawRelativePath = normalizedSourcePath.Substring(indexToken + searchToken.Length);
+                                relativeStoragePath = rawRelativePath.Replace('\\', '/');
+
+                                int lastDotIndex = relativeStoragePath.LastIndexOf('.');
+                                relativeThumbnailPath = (lastDotIndex != -1)
+                                    ? relativeStoragePath.Substring(0, lastDotIndex) + "_thumb.jpg"
+                                    : relativeStoragePath + "_thumb.jpg";
+                            }
+                            else
+                            {
+                                // КЕЙС Б: Резервный сценарий (uploads нет в пути) — берем просто имя файла
+                                // Файл все равно запишется в базу, и интеграция не упадет!
+                                relativeStoragePath = Path.GetFileName(sourceFilePath);
+
+                                int lastDotIndex = relativeStoragePath.LastIndexOf('.');
+                                relativeThumbnailPath = (lastDotIndex != -1)
+                                    ? relativeStoragePath.Substring(0, lastDotIndex) + "_thumb.jpg"
+                                    : relativeStoragePath + "_thumb.jpg";
+                            }
 
                             var attachmentId = Guid.NewGuid();
                             attachment_ids.Add(attachmentId); // Запоминаем GUID для сервиса
