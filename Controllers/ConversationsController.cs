@@ -1774,7 +1774,8 @@ namespace IDMChat.Controllers
                     .SendAsync("unread_count_updated", new
                     {
                         conversation_id = message.Conversation.Id,
-                        unread_count = member.UnreadCount
+                        unread_count = member.UnreadCount,
+                        last_read_message_id = member.LastReadMessageId
                     });
             }
 
@@ -1895,6 +1896,12 @@ namespace IDMChat.Controllers
                     await _db.SaveChangesAsync(ct);
 
                     // 9. Обновляем кэш
+                    var cachedChat = await _chatCache.GetConversationAsync(id);
+                    if (cachedChat != null)
+                    {
+                        // Синхронизируем in-memory кэш с базой данных
+                        cachedChat.UpdateReadStatus(userId, upToMessageId.Value, unreadCount: 0);
+                    }
                     _chatCache.ResetUnreadCount(id, userId);
 
                     // 10. Уведомляем отправителей о прочтении

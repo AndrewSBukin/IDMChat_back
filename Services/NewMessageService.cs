@@ -379,7 +379,8 @@ namespace IDMChat.Services
                 foreach (var memberId in onlineMembers)
                 {
                     var newUnreadCount = chat.GetUnreadCount(memberId);
-                    await _hubContext.Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount }, ct);
+                    var lastReadMsgId = chat.GetLastReadMessageId(memberId);
+                    await _hubContext.Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount, last_read_message_id = lastReadMsgId }, ct);
                 }
 
                 if (!isBotOrSystem(userId) && onlineMembers.Any())

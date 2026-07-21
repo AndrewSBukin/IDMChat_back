@@ -65,7 +65,12 @@ namespace IDMChat.Utils
                 throw new NotFoundException(
                     "{\"error\": {\"code\": \"CONVERSATION_NOT_FOUND\", \"message\": \"Диалог не найден\"}}");
 
-            return new CachedConversation
+            var membersData = await db.ConversationMembers
+                .Where(cm => cm.ConversationId == conversationId)
+                .Select(cm => new { cm.UserId, cm.UnreadCount, cm.LastReadMessageId }) // Считываем поле
+                .ToListAsync();
+
+            var cached = new CachedConversation
             {
                 Id = conversation.Id,
                 Type = conversation.Type,
@@ -79,8 +84,17 @@ namespace IDMChat.Utils
                 LastMessageCreatedAt = conversation.LastMessageCreatedAt,
                 Members = conversation.Members.Select(m => m.UserId).ToHashSet(),
                 Admins = conversation.Members.Where(m => m.IsAdmin).Select(m => m.UserId).ToHashSet(),
-                UnreadCounts = conversation.Members.ToDictionary(m => m.UserId, m => m.UnreadCount)
+                //UnreadCounts = conversation.Members.ToDictionary(m => m.UserId, m => m.UnreadCount)
             };
+
+            foreach (var member in membersData)
+            {
+                //cached.Members.Add(member.UserId);
+                cached.UnreadCounts[member.UserId] = member.UnreadCount;
+                cached.LastReadMessageIds[member.UserId] = member.LastReadMessageId;
+            }
+
+            return cached;
         }
 
         public void UpdateLastMessage(Guid conversationId, Message message, string truncatedText)
@@ -153,9 +167,19 @@ namespace IDMChat.Utils
         public HashSet<Guid> Members { get; set; } = new();
         public HashSet<Guid> Admins { get; set; } = new();
         public Dictionary<Guid, int> UnreadCounts { get; set; } = new();
+        public Dictionary<Guid, long?> LastReadMessageIds { get; set; } = new();
 
         public bool IsMember(Guid userId) => Members.Contains(userId);
         public bool IsAdmin(Guid userId) => Admins.Contains(userId);
         public int GetUnreadCount(Guid userId) => UnreadCounts.GetValueOrDefault(userId);
+        public long? GetLastReadMessageId(Guid userId) => LastReadMessageIds.GetValueOrDefault(userId);
+        public void UpdateReadStatus(Guid userId, long messageId, int unreadCount = 0)
+        {
+            lock (LockObject)
+            {
+                UnreadCounts[userId] = unreadCount;
+                LastReadMessageIds[userId] = messageId;
+            }
+        }
     }
 }
