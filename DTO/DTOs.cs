@@ -539,8 +539,11 @@ namespace IDMChat.DTO
 
     public class ExternalMessageRequestDto
     {
-        public string chat_id { get; set; } = string.Empty; // Например, "tg_-100123456"
-        public string text { get; set; } = string.Empty;             // Текст уведомления
+        public string chat_id { get; set; } = string.Empty; // Например, "-100123456"
+        public string text { get; set; } = string.Empty;    // Текст уведомления
+        public int id { get; set; }                         // внешний уникальный ключ сообщения
+        public int? reply_to_id { get; set; }               // внешний уникальный ключ сообщения, на которое отвечаем этим сообщением
+        public string code { get; set; }                    // пустой для текстовых сообщений и "media" для фото/видео, которые надо преобразовать. В text лежит список локальных путей к файлам.
     }
     #endregion
 }

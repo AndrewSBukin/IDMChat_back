@@ -159,7 +159,8 @@ namespace IDMChat.Services
                     ReplyToMessageId = msg.reply_to_message_id,
                     SentAt = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow,
-                    ChannelId = 0
+                    ChannelId = 0, 
+                    ExternalIdmId = msg.ext_id
                 };
 
 

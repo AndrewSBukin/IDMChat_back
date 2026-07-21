@@ -155,6 +155,7 @@ namespace IDMChat.Hubs
             public string type { get; set; }
             public List<Guid>? attachment_ids { get; set; }
             public List<MentionItem> mentions { get; set; }
+            public int ext_id { get; set; } = 0;
         }
         public async Task SendMessage(NewMessageRequest msg)
         {

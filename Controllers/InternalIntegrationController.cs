@@ -1,4 +1,6 @@
 ﻿using Asp.Versioning;
+using FFMpegCore;
+using FirebaseAdmin.Messaging;
 using IDMChat.DTO;
 using IDMChat.Hubs;
 using IDMChat.Models;
@@ -10,6 +12,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Net.Mail;
+using static IDMChat.Controllers.FilesController;
+using static System.Net.WebRequestMethods;
 
 namespace IDMChat.Controllers
 {
@@ -126,15 +130,116 @@ namespace IDMChat.Controllers
                 return Ok(new { success = false, message = "Маппинг не настроен. Пропущено." });
             }
 
+            // 2. ЛОГИКА РЕПЛАЕВ: Находим внутренний Guid сообщения, на которое отвечает ИДМ
+            long? internalReplyToId = null;
+            if (dto.reply_to_id.HasValue && dto.reply_to_id.Value > 0)
+            {
+                // Ищем оригинальное сообщение по индексу внешнего ID за 0 миллисекунд
+                internalReplyToId = await _dbContext.Messages
+                    .Where(m => m.ExternalIdmId == dto.reply_to_id.Value)
+                    .Select(m => m.Id)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            var isMediaCode = dto.code?.ToLowerInvariant() == "media";
+            var attachment_ids = new List<Guid>();
+            string? globalDetectedType = null;
+
+            
+            if (isMediaCode && !string.IsNullOrWhiteSpace(dto.text))
+            {
+                var filePaths = dto.text.Split(new[] { ',', '\n', ';' }, StringSplitOptions.RemoveEmptyEntries);
+                var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+
+                var attachmentsList = new List<FileAttachment>();
+                var uniqueFileTypes = new HashSet<FileType>();
+
+                foreach (var rawPath in filePaths)
+                {
+                    string sourceFilePath = rawPath.Trim();
+                    if (!System.IO.File.Exists(sourceFilePath)) continue;
+
+                    string extension = Path.GetExtension(sourceFilePath).ToLowerInvariant();
+                    FileType? detectedFileType = null;
+
+                    if (extension == ".jpg" || extension == ".jpeg" || extension == ".png" || extension == ".webp")
+                    {
+                        detectedFileType = FileType.Image;
+                    }
+                    else if (extension == ".mp4" || extension == ".mkv" || extension == ".mov")
+                    {
+                        detectedFileType = FileType.Video;
+                    }
+
+                    if (!detectedFileType.HasValue) continue;
+                    uniqueFileTypes.Add(detectedFileType.Value);
+
+                    if (!provider.TryGetContentType(sourceFilePath, out var fileMimeType))
+                    {
+                        fileMimeType = detectedFileType == FileType.Image ? "image/jpeg" : "video/mp4";
+                    }
+
+                    try
+                    {
+                        int? duration = null;
+                        if (detectedFileType == FileType.Video)
+                        {
+                            var mediaInfo = await FFProbe.AnalyseAsync(sourceFilePath);
+                            duration = (int)mediaInfo.Duration.TotalSeconds;
+                        }
+                        // Сборка путей через символьную ссылку mklink
+                        string searchToken = "uploads" + Path.DirectorySeparatorChar;
+                        int indexToken = sourceFilePath.IndexOf(searchToken, StringComparison.OrdinalIgnoreCase);
+                        string relativeStoragePath = sourceFilePath.Substring(indexToken + searchToken.Length).Replace('\\', '/');
+
+                        int lastDotIndex = relativeStoragePath.LastIndexOf('.');
+                        string relativeThumbnailPath = relativeStoragePath.Substring(0, lastDotIndex) + "_thumb.jpg";
+
+                        var attachmentId = Guid.NewGuid();
+                        attachment_ids.Add(attachmentId); // Запоминаем GUID для сервиса
+
+                        attachmentsList.Add(new FileAttachment
+                        {
+                            Id = attachmentId,
+                            MessageId = null, // Сервис отправки сам свяжет MessageId (long) под капотом!
+                            UserId = Guid.Parse("00000000-0000-0000-0000-000000000001"),
+                            ConversationId = mapping.ConversationId,
+                            FileName = Path.GetFileName(sourceFilePath),
+                            FileSize = new FileInfo(sourceFilePath).Length,
+                            MimeType = fileMimeType,
+                            StoragePath = relativeStoragePath,
+                            ThumbnailPath = relativeThumbnailPath,
+                            Type = detectedFileType.Value,
+                            Duration = duration,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                    catch (Exception) { /* Изолируем сбой одного файла */ }
+                }
+
+                if (attachmentsList.Any())
+                {
+                    // Сохраняем вложения в БД до вызова сервиса, чтобы он увидел их существование
+                    _dbContext.FileAttachments.AddRange(attachmentsList);
+                    await _dbContext.SaveChangesAsync(ct);
+
+                    // Вычисляем текстовый тип сообщения для DTO сервиса
+                    globalDetectedType = uniqueFileTypes.Count == 1
+                        ? (uniqueFileTypes.First() == FileType.Image ? "image" : "video")
+                        : "mixed";
+                }
+            }
+
             var msg = new ChatHub.NewMessageRequest()
             {
                 conversation_id = mapping.ConversationId,
-                text = dto.text.Trim(),
-                type = "text", 
+                text = isMediaCode ? "" : dto.text?.Trim() ?? string.Empty,
+                type = globalDetectedType ?? "text",
                 temp_id = Guid.NewGuid(), 
-                attachment_ids = new List<Guid>(), 
+                ext_id = dto.id,
+                attachment_ids = attachment_ids, 
                 mentions = new List<ChatHub.MentionItem>(), 
-                reply_to_message_id = null
+                reply_to_message_id = internalReplyToId
             };
             await _newMessageService.HandleSendMessage(msg, Guid.Parse("00000000-0000-0000-0000-000000000001"), ct);
             

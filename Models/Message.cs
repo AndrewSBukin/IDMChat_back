@@ -59,6 +59,7 @@ namespace IDMChat.Models
 
         public bool IsForwarded { get; set; }
         public Guid? OriginalSenderId { get; set; }
+        public int? ExternalIdmId { get; set; } // Внешний ID сообщения из ИДМ
 
         public bool IsPinned { get; set; }
         public Guid? PinnedByUserId { get; set; }
