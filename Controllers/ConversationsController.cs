@@ -1905,20 +1905,24 @@ namespace IDMChat.Controllers
                     _chatCache.ResetUnreadCount(id, userId);
 
                     // 10. Уведомляем отправителей о прочтении
-                    var bySender = newlyReadMessages.GroupBy(m => m.SenderId);
+                    await _hubContext.Clients
+                        .Group(id.ToString())
+                        .SendAsync("message_read", new
+                        {
+                            conversation_id = id,
+                            last_read_message_id = upToMessageId,
+                            user_id = userId,
+                            read_at = DateTime.UtcNow
+                        }, ct);
 
-                    foreach (var senderGroup in bySender)
-                    {
-                        await _hubContext.Clients
-                            .User(senderGroup.Key.ToString())
-                            .SendAsync("message_read", new
-                            {
-                                conversation_id = id,
-                                last_read_message_id = upToMessageId,
-                                user_id = userId,
-                                read_at = DateTime.UtcNow
-                            });
-                    }
+                    await _hubContext.Clients
+                        .User(userId.ToString())
+                        .SendAsync("unread_count_updated", new
+                        {
+                            conversation_id = id,
+                            unread_count = unreadCount, // Инициализировано на Шаге 8 вашего метода
+                            last_read_message_id = upToMessageId
+                        }, ct);
 
                     return StatusCode( 204, new UnreadCountDto(unreadCount) );
                 }
