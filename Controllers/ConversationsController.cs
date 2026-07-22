@@ -119,7 +119,20 @@ namespace IDMChat.Controllers
                                 : cm.Conversation.LastMessage.Text,
                             type = cm.Conversation.LastMessage.Type.ToString().ToLower(),
                             sender_id = cm.Conversation.LastMessage.SenderId,
-                            created_at = cm.Conversation.LastMessage.CreatedAt
+                            created_at = cm.Conversation.LastMessage.CreatedAt,
+                            attachments = cm.Conversation.LastMessage.FileAttachments
+                                .Select(a => new AttachmentDto
+                                {
+                                    id = a.Id,
+                                    file_name = a.FileName,
+                                    type = a.Type,
+                                    url = _urlResolver.ResolveUrl(a.StoragePath), 
+                                    thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath), 
+                                    duration = a.Duration, 
+                                    file_size = a.FileSize, 
+                                    mime_type = a.MimeType
+                                })
+                                .ToList()
                         }
                         : null
                 })
@@ -2246,7 +2259,7 @@ namespace IDMChat.Controllers
                 return Forbid();
 
             // Если это группа (не личная переписка) и включены ограничения, закреплять могут только админы
-            if (cachedChat.Type == ConversationType.group && !cachedChat.Admins.Contains(currentUserId))
+            if (cachedChat.Type == ConversationType.group && !cachedChat.IsAdmin(currentUserId))
                 return Forbid(); // 403 Forbidden
 
             // 2. Находим сообщение
