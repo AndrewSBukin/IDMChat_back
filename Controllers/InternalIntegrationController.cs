@@ -152,10 +152,10 @@ namespace IDMChat.Controllers
             if (existingMessage != null)
             {
                 // повтор или обновление
-                string incomingText = isMediaCode ? "" : dto.text?.Trim() ?? string.Empty;
+                string incomingText = isMediaCode ? "Приложение" : dto.text?.Trim() ?? string.Empty;
 
                 // КЕЙС 1: Текст полностью совпадает — это чистый сетевой дубль. Игнорируем без ошибок (200 OK)
-                if (existingMessage.Text == incomingText || existingMessage.Text == "")
+                if (existingMessage.Text == incomingText || existingMessage.Text == "" || existingMessage.Text == "Приложение")
                 {
                     return Ok(new { success = true, message = "Сетевой дубликат успешно проигнорирован", internal_message_id = existingMessage.Id });
                 }
@@ -293,7 +293,7 @@ namespace IDMChat.Controllers
                 var msg = new ChatHub.NewMessageRequest()
                 {
                     conversation_id = mapping.ConversationId,
-                    text = isMediaCode ? "" : dto.text?.Trim() ?? string.Empty,
+                    text = isMediaCode ? "Приложение" : dto.text?.Trim() ?? string.Empty,
                     type = globalDetectedType ?? "text",
                     temp_id = Guid.NewGuid(),
                     ext_id = dto.id,

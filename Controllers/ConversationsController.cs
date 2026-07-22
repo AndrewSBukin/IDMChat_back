@@ -464,7 +464,7 @@ namespace IDMChat.Controllers
             var userId = HttpContext.GetCurrentUserId();
 
             // 1. Находим чат и проверяем права
-            var conversation = await _db.Conversations
+            var conversation = await _db.Conversations.Include(x => x.Members)
                 .FirstOrDefaultAsync(c => c.Id == id, ct);
 
             if (conversation == null)
