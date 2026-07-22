@@ -487,15 +487,15 @@ namespace IDMChat.Controllers
             // 4. Обновляем поля (только те, что переданы)
             var hasChanges = false;
 
-            if (!string.IsNullOrWhiteSpace(request.Name))
+            if (!string.IsNullOrWhiteSpace(request.name))
             {
-                conversation.Name = request.Name;
+                conversation.Name = request.name;
                 hasChanges = true;
             }
 
-            if (!string.IsNullOrWhiteSpace(request.AvatarUrl))
+            if (!string.IsNullOrWhiteSpace(request.avatar_url))
             {
-                conversation.AvatarUrl = request.AvatarUrl;
+                conversation.AvatarUrl = request.avatar_url;
                 hasChanges = true;
             }
 

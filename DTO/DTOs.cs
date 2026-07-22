@@ -168,10 +168,10 @@ namespace IDMChat.DTO
     public class UpdateConversationRequest
     {
         [MaxLength(100)]
-        public string? Name { get; set; }
+        public string? name { get; set; }
 
         [MaxLength(500)]
-        public string? AvatarUrl { get; set; }
+        public string? avatar_url { get; set; }
     }
 
     public class MuteRequest
