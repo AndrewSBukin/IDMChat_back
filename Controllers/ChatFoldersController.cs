@@ -63,10 +63,18 @@ namespace IDMChat.Controllers
                     .ToList()
             }).ToList();
 
+            var allPinnedIds = await _db.ConversationMembers
+                .AsNoTracking()
+                .Where(cm => cm.UserId == userId && cm.IsPinned)
+                .OrderBy(cm => cm.PinnedOrder) // Сортируем строго в кастомном порядке drag-and-drop
+                .Select(cm => cm.ConversationId)
+                .ToListAsync(ct);
+
             // Возвращаем обертку "folders", как просит фронтенд
             var response = new ChatFoldersListResponseDto
             {
-                folders = folderDtos
+                folders = folderDtos,
+                all_folder_pinned_ids = allPinnedIds
             };
 
             return Ok(response);

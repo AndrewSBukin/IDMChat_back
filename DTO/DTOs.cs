@@ -416,6 +416,7 @@ namespace IDMChat.DTO
     public class ChatFoldersListResponseDto
     {
         public List<ChatFolderDto> folders { get; set; } = new();
+        public List<Guid> all_folder_pinned_ids { get; set; } = new();
     }
 
     public class CreateChatFolderRequestDto
