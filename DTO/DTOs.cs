@@ -548,4 +548,31 @@ namespace IDMChat.DTO
         public string code { get; set; }                    // пустой для текстовых сообщений и "media" для фото/видео, которые надо преобразовать. В text лежит список локальных путей к файлам.
     }
     #endregion
+
+    public class SearchMessagesResponseDto
+    {
+        public List<FoundMessageItemDto> results { get; set; } = new();
+        public bool hasMore { get; set; }
+        public int totalCount { get; set; }
+    }
+
+    public class FoundMessageItemDto
+    {
+        public long id { get; set; } // long ID сообщения для перехода в истории
+        public Guid conversationId { get; set; }
+        public Guid senderId { get; set; }
+        //public string sender_name { get; set; } = string.Empty;
+        //public string? sender_avatar_url { get; set; }
+        public string content { get; set; } = string.Empty;
+        public string type { get; set; } = "text";
+        public DateTime createdAt { get; set; }
+        public HighlightDto highlight { get; set; }
+    }
+
+    public class HighlightDto
+    {
+        public int start { get; set; }
+        public int length { get; set; }
+
+    }
 }

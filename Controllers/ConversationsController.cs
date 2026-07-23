@@ -486,15 +486,18 @@ namespace IDMChat.Controllers
 
             // 4. Обновляем поля (только те, что переданы)
             var hasChanges = false;
-
+            var sysmessage = "";
             if (!string.IsNullOrWhiteSpace(request.name))
             {
+                sysmessage = $"{_userCache.GetDisplayName(userId)} сменил название группы на {request.name}.";
                 conversation.Name = request.name;
                 hasChanges = true;
             }
 
             if (!string.IsNullOrWhiteSpace(request.avatar_url))
             {
+                if (sysmessage != "") sysmessage += "\r\n";
+                sysmessage += $"{_userCache.GetDisplayName(userId)} сменил аватар группы.";
                 conversation.AvatarUrl = request.avatar_url;
                 hasChanges = true;
             }
@@ -511,6 +514,9 @@ namespace IDMChat.Controllers
 
             // 6. Инвалидируем кэш (если используется)
             _chatCache.Invalidate(id);
+
+            if(hasChanges)
+                _newMessageService.HandleSendSystemMessage(conversation.Id, sysmessage, ct);
 
             // 7. Возвращаем обновлённый объект чата
             var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, ct);
@@ -2543,6 +2549,111 @@ namespace IDMChat.Controllers
         }
         #endregion
 
+        #region Search
+        [HttpGet("{id}/messages/search")]
+        [Authorize]
+        public async Task<IActionResult> SearchMessagesInConversation(Guid id, [FromQuery] string query, [FromQuery] int limit = 30, [FromQuery] long? before = null, CancellationToken ct = default)
+        {
+            var userId = HttpContext.GetCurrentUserId();
+
+            // 1. Валидация входных данных строго по ТЗ фронтенда
+            var trimmedQuery = query?.Trim();
+            if (string.IsNullOrEmpty(trimmedQuery) || trimmedQuery.Length < 1)
+            {
+                return BadRequest(new { error = new { code = "INVALID_QUERY", message = "Поисковая фраза не может быть пустой" } });
+            }
+
+            // Защита от перегрузки памяти (Highload)
+            if (limit <= 0 || limit > 100) limit = 30;
+
+            // 2. Проверка членства пользователя в чате через In-Memory кэш за 0 мс
+            var cachedChat = await _chatCache.GetConversationAsync(id);
+            if (cachedChat == null || !cachedChat.Members.Contains(userId))
+            {
+                return StatusCode(403, new { error = new { code = "ACCESS_DENIED", message = "Вы не являетесь участником этого чата" } });
+            }
+
+            // 3. Формируем выражение для полнотекстового индекса MSSQL (Регистронезависимость гарантируется СУБД)
+            string formattedFtsQuery = $"\"{trimmedQuery}*\"";
+
+            // Базовый LINQ-запрос для поиска совпадений по контенту
+            var baseQuery = _db.Messages
+                .Where(m => m.ConversationId == id && !m.IsDeleted && m.Type == MessageType.Text) // Ищем только текстовые по ТЗ (фаза 1)
+                .Where(m => EF.Functions.Contains(m.Text, formattedFtsQuery));
+
+            // 4. Считаем общее количество совпадений в чате (для счетчика "N из M")
+            var totalCount = await baseQuery.CountAsync(ct);
+
+            // 5. КУРСОРНАЯ ПАГИНАЦИЯ (before): если передан ID, берем сообщения СТАРШЕ (Id меньше указанного)
+            if (before.HasValue && before.Value > 0)
+            {
+                baseQuery = baseQuery.Where(m => m.Id < before.Value);
+            }
+
+            // 6. Выбираем порцию результатов (Свежие сверху: createdAt DESC)
+            var dbMessages = await baseQuery
+                .AsNoTracking()
+                .OrderByDescending(m => m.Id) // Сортировка по ID совпадает со временем createdAt DESC
+                .Take(limit + 1)
+                .ToListAsync(ct);
+
+            bool hasMore = dbMessages.Count > limit;
+            if (hasMore)
+            {
+                dbMessages.RemoveAt(dbMessages.Count - 1);
+            }
+
+            // 7. Сборка результатов с динамическим вычислением подсветки (Highlight) в памяти C#
+            var results = dbMessages.Select(m =>
+            {
+                // Вычисляем офсеты совпадения слова для фронтенда (Регистронезависимо)
+                int startIndex = m.Text.IndexOf(trimmedQuery, StringComparison.OrdinalIgnoreCase);
+                var highlightDto = startIndex != -1
+                    ? new HighlightDto { start = startIndex, length = trimmedQuery.Length }
+                    : new HighlightDto { start = 0, length = 0 };
+
+                if(highlightDto.length == 0 && trimmedQuery.Length > 4)
+                {
+                    string stemQuery = trimmedQuery;
+                    stemQuery = trimmedQuery.Substring(0, trimmedQuery.Length - (trimmedQuery.EndsWith("ы") || trimmedQuery.EndsWith("и") || trimmedQuery.EndsWith("а") ? 1 : 2));
+
+                    startIndex = m.Text.IndexOf(stemQuery, StringComparison.OrdinalIgnoreCase);
+
+                    int highlightLength = trimmedQuery.Length;
+                    if (startIndex != -1)
+                    {
+                        // Находим, где заканчивается реальное слово в сообщении (до пробела или знака препинания)
+                        int spaceIndex = m.Text.IndexOf(' ', startIndex);
+                        int wordEndIndex = spaceIndex != -1 ? spaceIndex : m.Text.Length;
+                        highlightLength = wordEndIndex - startIndex;
+                    }
+
+                    highlightDto = startIndex != -1
+                        ? new HighlightDto { start = startIndex, length = highlightLength }
+                        : new HighlightDto { start = 0, length = 0 };
+                }
+
+                return new FoundMessageItemDto()
+                {
+                    id = m.Id,
+                    conversationId = m.ConversationId,
+                    senderId = m.SenderId,
+                    createdAt = m.CreatedAt, // Клиент сам распарсит в локальное время по ТЗ
+                    content = m.Text,        // Поле называется content по контракту фронта
+                    type = "text",
+                    highlight = highlightDto  // Офсеты совпадения сильно улучшают UX
+                };
+            }).ToList();
+
+            // 9. Возвращаем плоский JSON строго в формате фронтенда
+            return Ok(new SearchMessagesResponseDto()
+            {
+                totalCount = totalCount,
+                hasMore = hasMore,
+                results = results
+            });
+        }
+        #endregion
 
         private async Task<MessageDto> MapToMessageDto(Message m, Guid currentUserId, CancellationToken ct)
         {
