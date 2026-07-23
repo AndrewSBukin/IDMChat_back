@@ -236,6 +236,15 @@ namespace IDMChat.DTO
         public bool is_muted { get; set; }
         public int unread_count { get; set; }
         public long? last_read_message_id { get; set; }
+        public List<string> unread_mention_ids { get; set; } = new();
+    }
+
+    public class UnreadCountUpdatedPayload
+    {
+        public Guid conversation_id { get; set; }
+        public int unread_count { get; set; }
+        public long? last_read_message_id { get; set; }
+        public List<string> unread_mention_ids { get; set; } = new();
     }
 
     public class MemberResponse

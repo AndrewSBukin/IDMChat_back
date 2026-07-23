@@ -83,7 +83,8 @@ public class AuthController : ControllerBase
                 Role = MapIdmRoleToChatRole(idmResult.Role),
                 idm = idmResult.CompanyCode, // Привязываем код компании сотрудника
                 CreatedAt = DateTime.UtcNow,
-                IsActive = true
+                IsActive = true,
+                Username = dto.Username
             };
             _dbContext.Users.Add(localUser);
         }

@@ -83,6 +83,15 @@ namespace IDMChat.Controllers
                     cm.LastReadMessageId,
                     Conversation = cm.Conversation,
 
+                    UnreadMentionIds = _db.Messages
+                        .Where(m => m.ConversationId == cm.ConversationId
+                                 && !m.IsDeleted
+                                 && (cm.LastReadMessageId == null || m.Id > cm.LastReadMessageId)
+                                 && m.Mentions.Any(mention => mention.UserId == userId)) // Предполагаем навигационное свойство Mentions в Message
+                        .OrderBy(m => m.Id) // От старых к новым (oldest -> newest)
+                        .Select(m => m.Id.ToString()) // Приводим к строке по требованию фронтенда
+                        .ToList(),
+
                     // Участники (только для group, для direct - все)
                     Members = cm.Conversation.Type == ConversationType.group
                         ? cm.Conversation.Members
@@ -155,7 +164,8 @@ namespace IDMChat.Controllers
                 last_message = data.LastMessage,
                 unread_count = data.UnreadCount,
                 updated_at = data.Conversation.UpdatedAt, 
-                last_read_message_id = data.LastReadMessageId
+                last_read_message_id = data.LastReadMessageId,
+                unread_mention_ids = data.UnreadMentionIds
             }).ToList();
 
             return Ok(new ConversationsResponse
@@ -1790,7 +1800,7 @@ namespace IDMChat.Controllers
             foreach (var member in membersWithUnread)
             {
                 await _hubContext.Clients.User(member.UserId.ToString())
-                    .SendAsync("unread_count_updated", new
+                    .SendAsync("unread_count_updated", new UnreadCountUpdatedPayload
                     {
                         conversation_id = message.Conversation.Id,
                         unread_count = member.UnreadCount,
@@ -1936,7 +1946,7 @@ namespace IDMChat.Controllers
 
                     await _hubContext.Clients
                         .User(userId.ToString())
-                        .SendAsync("unread_count_updated", new
+                        .SendAsync("unread_count_updated", new UnreadCountUpdatedPayload
                         {
                             conversation_id = id,
                             unread_count = unreadCount, // Инициализировано на Шаге 8 вашего метода

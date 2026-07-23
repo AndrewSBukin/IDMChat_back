@@ -380,7 +380,7 @@ namespace IDMChat.Services
                 {
                     var newUnreadCount = chat.GetUnreadCount(memberId);
                     var lastReadMsgId = chat.GetLastReadMessageId(memberId);
-                    await _hubContext.Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new { conversation_id = msg.conversation_id, unread_count = newUnreadCount, last_read_message_id = lastReadMsgId }, ct);
+                    await _hubContext.Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new UnreadCountUpdatedPayload { conversation_id = msg.conversation_id, unread_count = newUnreadCount, last_read_message_id = lastReadMsgId }, ct);
                 }
 
                 if (!isBotOrSystem(userId) && onlineMembers.Any())
