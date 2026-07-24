@@ -3082,6 +3082,15 @@ namespace IDMChat.Controllers
                     Conversation = cm.Conversation,
                     cm.JoinedAt,
 
+                    UnreadMentionIds = _db.Messages
+                        .Where(m => m.ConversationId == cm.ConversationId
+                                 && !m.IsDeleted
+                                 && (cm.LastReadMessageId == null || m.Id > cm.LastReadMessageId)
+                                 && m.Mentions.Any(mention => mention.UserId == userId)) // Предполагаем навигационное свойство Mentions в Message
+                        .OrderBy(m => m.Id) // От старых к новым (oldest -> newest)
+                        .Select(m => m.Id.ToString()) // Приводим к строке по требованию фронтенда
+                        .ToList(),
+
                     // Загружаем Mentions только для последнего сообщения, если оно существует
                     LastMessageMentions = cm.Conversation.LastMessageId != null
                         ? _db.MessageMentions
@@ -3186,7 +3195,8 @@ namespace IDMChat.Controllers
                 last_message = lastMessageDto,
                 unread_count = data.UnreadCount,
                 updated_at = data.Conversation.UpdatedAt, 
-                last_read_message_id = data.LastReadMessageId
+                last_read_message_id = data.LastReadMessageId,
+                unread_mention_ids = data.UnreadMentionIds
             };
         }
 
