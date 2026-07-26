@@ -10,5 +10,6 @@ namespace IDMChat.Models
         public string MessageType { get; set; } = string.Empty;
         public List<Guid> TargetUserIds { get; set; } = new List<Guid>();
         public long MessageId { get; internal set; }
+        public List<Guid> MentionedUserIds { get; set; } = new();
     }
 }

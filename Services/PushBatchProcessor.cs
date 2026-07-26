@@ -1,6 +1,9 @@
 ﻿using FirebaseAdmin.Messaging;
+using IDMChat.DTO;
+using IDMChat.Hubs;
 using IDMChat.Models;
 using IDMChat.Utils;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
@@ -20,8 +23,9 @@ namespace IDMChat.Services
         private readonly List<PushNotificationTask> _batch;
         private readonly TimeSpan _flushInterval;
         private readonly int _batchSize;
+        private readonly IHubContext<ChatHub> _hubContext;
 
-        public PushBatchProcessor(IBackgroundPushQueue queue, ILogger<PushBatchProcessor> logger, IConfiguration configuration, IServiceProvider serviceProvider, ChatStateCache chatCache, UserCache userCache)
+        public PushBatchProcessor(IBackgroundPushQueue queue, ILogger<PushBatchProcessor> logger, IConfiguration configuration, IServiceProvider serviceProvider, ChatStateCache chatCache, UserCache userCache, IHubContext<ChatHub> hubContext)
         {
             try
             {
@@ -30,6 +34,7 @@ namespace IDMChat.Services
                 _serviceProvider = serviceProvider;
                 _chatCache = chatCache;
                 _userCache = userCache;
+                _hubContext = hubContext;
 
                 logger.LogInformation("PushBatchProcessor constructor started");
 
@@ -130,6 +135,69 @@ namespace IDMChat.Services
             {
                 using var scope = _serviceProvider.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
+
+                // Собираем из батча все задачи, где были реальные упоминания пользователей
+                var mentionTasks = batchToSend
+                    .Where(t => t.TargetUserIds != null && t.TargetUserIds.Any())
+                    .ToList();
+                if (mentionTasks.Any())
+                {
+                    // Группируем по парам ChatId + UserId, чтобы не делать дублирующие запросы
+                    var uniqueUserConversations = mentionTasks
+                        .SelectMany(t => t.TargetUserIds.Select(userId => new { t.ConversationId, UserId = userId }))
+                        .Distinct()
+                        .GroupBy(uc => uc.ConversationId);
+
+                    foreach (var conversationGroup in uniqueUserConversations)
+                    {
+                        var conversationId = conversationGroup.Key;
+                        var userIdsInChat = conversationGroup.Select(g => g.UserId).ToList();
+
+                        // За один запрос пачкой собираем UnreadCount и списки непрочитанных ID меншенов
+                        var membersData = await db.ConversationMembers
+                            .Where(cm => cm.ConversationId == conversationId && userIdsInChat.Contains(cm.UserId))
+                            .Select(cm => new
+                            {
+                                cm.UserId,
+                                cm.UnreadCount,
+                                cm.LastReadMessageId,
+                                UnreadMentionIds = db.Messages
+                                    .Where(m => m.ConversationId == conversationId
+                                             && !m.IsDeleted
+                                             && (cm.LastReadMessageId == null || m.Id > cm.LastReadMessageId)
+                                             && m.Mentions.Any(mention => mention.UserId == cm.UserId))
+                                    .OrderBy(m => m.Id)
+                                    .Select(m => m.Id.ToString())
+                            .ToList()
+                            })
+                        .ToListAsync(ct);
+
+                        // Рассылаем SignalR ивенты персонально каждому упомянутому сотруднику
+                        foreach (var memberInfo in membersData)
+                        {
+                            var connectionId = _userCache.GetConnectionId(memberInfo.UserId);
+
+                            if (!string.IsNullOrEmpty(connectionId))
+                            {
+                                // 1. Старое событие: строго в прежнем формате (без упоминаний)
+                                _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", new
+                                {
+                                    conversation_id = conversationId,
+                                    unread_count = memberInfo.UnreadCount,
+                                    last_read_message_id = memberInfo.LastReadMessageId?.ToString()
+                                }, ct);
+
+                                // 2. 🔥 НОВОЕ ОТДЕЛЬНОЕ СОБЫТИЕ: отправляем только список ID упоминаний
+                                var mentionsPayload = new UnreadMentionsUpdatedPayload
+                                {
+                                    conversation_id = conversationId,
+                                    unread_mention_ids = memberInfo.UnreadMentionIds
+                                };
+                                _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_mentions_updated", mentionsPayload, ct);
+                            }
+                        }
+                    }
+                }
 
                 // Будем собирать все сообщения, готовые к отправке на конкретные токены
                 var fcmMessagesToSend = new List<Message>();

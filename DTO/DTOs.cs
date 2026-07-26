@@ -584,4 +584,10 @@ namespace IDMChat.DTO
         public int length { get; set; }
 
     }
+
+    public class UnreadMentionsUpdatedPayload
+    {
+        public Guid conversation_id { get; set; }
+        public List<string> unread_mention_ids { get; set; } = new();
+    }
 }

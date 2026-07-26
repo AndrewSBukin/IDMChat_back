@@ -16,12 +16,14 @@ using Microsoft.VisualBasic;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Net.Mail;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using static IDMChat.Controllers.ConversationsController;
 using static IDMChat.Controllers.FilesController;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 using static System.Net.WebRequestMethods;
 using Message = IDMChat.Models.Message;
 
@@ -1775,7 +1777,7 @@ namespace IDMChat.Controllers
             // 5. Инвалидируем кэш
             _chatCache.Invalidate(id);
 
-            // 6. Уведомляем участников через хаб (опционально)
+            // 6. Уведомляем участников через хаб
             await _hubContext.Clients.Group(id.ToString()).SendAsync("message_deleted", new
             {
                 id = messageId,
@@ -1783,29 +1785,56 @@ namespace IDMChat.Controllers
             });
 
             // Находим всех участников чата, у которых это сообщение ещё не прочитано
-            var membersWithUnread = await _db.ConversationMembers
-                .Where(cm => cm.ConversationId == message.Conversation.Id
+            var membersDataToUpdate = await _db.ConversationMembers
+                .Where(cm => cm.ConversationId == id
                              && (cm.LastReadMessageId == null || cm.LastReadMessageId < messageId))
-                .ToListAsync();
+                .Select(cm => new
+                {
+                    MemberEntity = cm, // Вытягиваем саму сущность, чтобы уменьшить ей UnreadCount
+                    UserId = cm.UserId,
+                    LastReadMessageId = cm.LastReadMessageId,
+                    UnreadMentionIds = _db.Messages
+                        .Where(m => m.ConversationId == id
+                                 && !m.IsDeleted
+                                 && (cm.LastReadMessageId == null || m.Id > cm.LastReadMessageId)
+                                 && m.Mentions.Any(mention => mention.UserId == cm.UserId))
+                        .OrderBy(m => m.Id)
+                        .Select(m => m.Id.ToString())
+                        .ToList()
+                })
+                .ToListAsync(ct);
 
-            foreach (var member in membersWithUnread)
+
+
+            foreach (var item in membersDataToUpdate)
             {
-                member.UnreadCount--;  // уменьшаем счётчик
-                member.UnreadCount = Math.Max(0, member.UnreadCount);  // не меньше 0
+                item.MemberEntity.UnreadCount = Math.Max(0, item.MemberEntity.UnreadCount - 1);
             }
 
-            await _db.SaveChangesAsync();
+            // 3. Сохраняем обновленные счетчики UnreadCount в БД одним пакетом
+            await _db.SaveChangesAsync(ct);
 
             // Отправляем обновления
-            foreach (var member in membersWithUnread)
+            foreach (var item in membersDataToUpdate)
             {
-                await _hubContext.Clients.User(member.UserId.ToString())
-                    .SendAsync("unread_count_updated", new UnreadCountUpdatedPayload
+                var connectionId = _userCache.GetConnectionId(item.UserId);
+                if (!string.IsNullOrEmpty(connectionId))
+                {
+                    // Событие 1: Старый счетчик (без изменений, как просили фронты)
+                    _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", new
                     {
-                        conversation_id = message.Conversation.Id,
-                        unread_count = member.UnreadCount,
-                        last_read_message_id = member.LastReadMessageId
-                    });
+                        conversation_id = id,
+                        unread_count = item.MemberEntity.UnreadCount,
+                        last_read_message_id = item.LastReadMessageId?.ToString()
+                    }, ct);
+
+                    // Событие 2: Новый изолированный список упоминаний для кнопки @
+                    _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_mentions_updated", new UnreadMentionsUpdatedPayload
+                    {
+                        conversation_id = id,
+                        unread_mention_ids = item.UnreadMentionIds
+                    }, ct);
+                }
             }
 
             return NoContent();
@@ -1884,6 +1913,8 @@ namespace IDMChat.Controllers
                     // 9. Обновляем кэш
                     _chatCache.ResetUnreadCount(id, userId);
 
+                    await SendUnreadCountUpdateAsync(id, userId);
+
                     return StatusCode(204, new
                     {
                         unread_count = unreadCount
@@ -1952,6 +1983,8 @@ namespace IDMChat.Controllers
                             unread_count = unreadCount, // Инициализировано на Шаге 8 вашего метода
                             last_read_message_id = upToMessageId
                         }, ct);
+
+                    await SendUnreadCountUpdateAsync(id, userId);
 
                     return StatusCode( 204, new UnreadCountDto(unreadCount) );
                 }
@@ -3198,6 +3231,55 @@ namespace IDMChat.Controllers
                 last_read_message_id = data.LastReadMessageId,
                 unread_mention_ids = data.UnreadMentionIds
             };
+        }
+
+        // Метод-помощник для отправки обновления счетчиков в SignalR
+        private async Task SendUnreadCountUpdateAsync(Guid conversationId, Guid userId)
+        {
+            // 1. Читаем текущее состояние из базы/кэша
+            var memberInfo = await _db.ConversationMembers
+                .Where(cm => cm.ConversationId == conversationId && cm.UserId == userId)
+                .Select(cm => new
+                {
+                    cm.UnreadCount,
+                    cm.LastReadMessageId,
+                    UnreadMentionIds = _db.Messages
+                        .Where(m => m.ConversationId == conversationId
+                                 && !m.IsDeleted
+                                 && (cm.LastReadMessageId == null || m.Id > cm.LastReadMessageId)
+                                 && m.Mentions.Any(mention => mention.UserId == userId))
+                        .OrderBy(m => m.Id)
+                        .Select(m => m.Id.ToString())
+                        .ToList()
+                })
+                .FirstOrDefaultAsync();
+
+            if (memberInfo == null) return;
+
+            // 2. Формируем payload по вашему ТЗ
+            var payload = new UnreadCountUpdatedPayload
+            {
+                conversation_id = conversationId,
+                unread_count = memberInfo.UnreadCount,
+                last_read_message_id = memberInfo.LastReadMessageId,
+                //unread_mention_ids = memberInfo.UnreadMentionIds
+            };
+
+            // 3. Получаем connectionId пользователя из вашего UserCache
+            var connectionId = _userCache.GetConnectionId(userId); // Метод из вашего UserCache
+            if (!string.IsNullOrEmpty(connectionId))
+            {
+                // Отправляем событие в SignalR конкретному пользователю
+                await _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", payload);
+            }
+
+            var mentionsPayload = new UnreadMentionsUpdatedPayload
+            {
+                conversation_id = conversationId,
+                unread_mention_ids = memberInfo.UnreadMentionIds
+            };
+            await _hubContext.Clients.Client(connectionId).SendAsync("unread_mentions_updated", mentionsPayload);
+
         }
 
     }
