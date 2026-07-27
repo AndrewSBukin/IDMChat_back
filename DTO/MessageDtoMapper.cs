@@ -60,7 +60,8 @@ namespace IDMChat.DTO
                 {
                     id = message.OriginalSenderId.Value,
                     display_name = origSender?.DisplayName ?? "Удаленный пользователь",
-                    avatar_url = _urlResolver.ResolveUrl(origSender?.AvatarUrl)
+                    avatar_url = _urlResolver.ResolveUrl(origSender?.AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(origSender?.AvatarUrl),
                 };
             }
 
@@ -131,7 +132,8 @@ namespace IDMChat.DTO
                 {
                     id = message.SenderId,
                     display_name = senderFromCache?.DisplayName ?? "-",
-                    avatar_url = _urlResolver.ResolveUrl(senderFromCache?.AvatarUrl)
+                    avatar_url = _urlResolver.ResolveUrl(senderFromCache?.AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(senderFromCache?.AvatarUrl),
                 },
 
                 is_forwarded = message.IsForwarded,

@@ -3,6 +3,7 @@
     public interface IChatPathUrlResolver
     {
         string? ResolveUrl(string? relativePath);
+        string? ResolveAvatarThumbUrl(string? relativePath);
     }
 
     public class ChatPathUrlResolver : IChatPathUrlResolver
@@ -41,6 +42,27 @@
 
             // Наш единый эндпоинт раздачи в FilesController — это api/files/{**filePath}
             return $"{baseUrl}/api/files/{cleanRelativePath}";
+        }
+
+        public string? ResolveAvatarThumbUrl(string? relativePath)
+        {
+            return ResolveUrl(relativePath);
+        }
+    }
+    public static class UrlResolverExtensions
+    {
+        public static string? ResolveAvatarThumbUrl(this ChatPathUrlResolver urlResolver, string? storagePath)
+        {
+            if (string.IsNullOrEmpty(storagePath)) return null;
+
+            // Находим расширение файла (например, .jpg)
+            var extension = Path.GetExtension(storagePath);
+
+            // Подставляем суффикс _thumb перед расширением
+            var thumbStoragePath = storagePath.Replace(extension, $"_thumb{extension}");
+
+            // Превращаем внутренний путь бэкенда в готовый внешний URL (https://idmbb.ru:8070/...)
+            return urlResolver.ResolveUrl(thumbStoragePath);
         }
     }
 }

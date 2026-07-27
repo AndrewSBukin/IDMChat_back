@@ -227,6 +227,7 @@ namespace IDMChat.DTO
         public string type { get; set; }
         public string? name { get; set; }
         public string? avatar_url { get; set; }
+        public string? avatar_thumb_url { get; set; }
         public List<MemberResponse> members { get; set; } = new();
         public LastMessageDto? last_message { get; set; }
         public DateTime updated_at { get; set; }
@@ -254,6 +255,7 @@ namespace IDMChat.DTO
         public Guid id { get; set; }
         public string display_name { get; set; } = string.Empty;
         public string? avatar_url { get; set; }
+        public string? avatar_thumb_url { get; set; }
         public string? role { get; set; }
         public string? status { get; set; }
         public bool is_online { get; set; }
@@ -361,6 +363,7 @@ namespace IDMChat.DTO
         public Guid id { get; set; }
         public string display_name { get; set; } = string.Empty;
         public string? avatar_url { get; set; }
+        public string? avatar_thumb_url { get; set; }
     }
 
     public class UploadFileResponse

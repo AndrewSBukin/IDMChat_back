@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text.Json;
+using static System.Net.WebRequestMethods;
 
 namespace IDMChat.Controllers
 {
@@ -138,7 +139,7 @@ namespace IDMChat.Controllers
             // Генерация миниатюры через FFmpeg для изображений
             if (fileType == FileType.Image)
             {
-                await GenerateImageThumbnailWithFfmpeg(filePath, thumbPath, 200, 200);
+                await GenerateImageThumbnailWithFfmpeg(filePath, 200, 200);
                 hasThumbnail = true;
             }
             else if (fileType == FileType.Video)
@@ -317,7 +318,7 @@ namespace IDMChat.Controllers
 
                 if (fileType == FileType.Image)
                 {
-                    await GenerateImageThumbnailWithFfmpeg(filePath, thumbPath, 200, 200);
+                    await GenerateImageThumbnailWithFfmpeg(filePath, 200, 200);
                     hasThumbnail = true;
                 }
                 else if (fileType == FileType.Video)
@@ -410,11 +411,16 @@ namespace IDMChat.Controllers
             return (int)Math.Ceiling(mediaInfo.Duration.TotalSeconds);
         }
 
-        private async Task GenerateImageThumbnailWithFfmpeg(string inputPath, string outputPath, int width, int height)
+        public static async Task GenerateImageThumbnailWithFfmpeg(string inputPath, int width, int height)
         {
+            var originalExtension = Path.GetExtension(inputPath);
+            var originalFilemane = Path.GetFileNameWithoutExtension(inputPath);
+            var originalPath = Path.GetDirectoryName(inputPath);
+            var thumbFileName = $"{originalFilemane}_thumb.jpg";
+            var thumbPath = Path.Combine(originalPath, thumbFileName);
             await FFMpegArguments
                 .FromFileInput(inputPath)
-                .OutputToFile(outputPath, true, options => options
+                .OutputToFile(thumbPath, true, options => options
                     .WithVideoFilters(filterOptions => filterOptions
                         .Scale(width, height))
                     .WithFrameOutputCount(1)

@@ -138,6 +138,15 @@ public class ProfileController : ControllerBase
             await file.CopyToAsync(stream);
         }
 
+        try
+        {
+            await FilesController.GenerateImageThumbnailWithFfmpeg(filePath, 200, 200);
+        }
+        catch (Exception ex)
+        {
+            //_logger.LogError(ex, "Ошибка при генерации FFmpeg-миниатюры для аватара пользователя {UserId}", userId);
+        }
+
         // Удаляем старый аватар, если есть
         if (!string.IsNullOrEmpty(user.AvatarUrl))
         {

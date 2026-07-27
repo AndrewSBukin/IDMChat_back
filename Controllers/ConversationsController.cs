@@ -102,7 +102,8 @@ namespace IDMChat.Controllers
                             {
                                 id = m.UserId,
                                 display_name = m.User.DisplayName ?? "Сотрудник",
-                                avatar_url = m.User.AvatarUrl,
+                                avatar_url = m.User.AvatarUrl, 
+                                avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(m.User.AvatarUrl),
                                 status = _userCache.IsOnline(m.UserId) ? "online" : "offline",
                                 custom_status = m.User.CustomStatus,
                                 is_online = _userCache.IsOnline(m.UserId), 
@@ -117,6 +118,7 @@ namespace IDMChat.Controllers
                                 id = m.UserId,
                                 display_name = m.User.DisplayName,
                                 avatar_url = m.User.AvatarUrl,
+                                avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(m.User.AvatarUrl),
                                 status = m.User.IsOnline ? "online" : "offline"
                             }).ToList(),
 
@@ -160,6 +162,7 @@ namespace IDMChat.Controllers
                 type = data.Conversation.Type.ToString(),
                 name = data.Conversation.Type == ConversationType.direct? data.Members?.FirstOrDefault()?.display_name : data.Conversation.Name,
                 avatar_url = data.Conversation.AvatarUrl,
+                avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(data.Conversation.AvatarUrl),
                 is_pinned = data.IsPinned,
                 is_muted = data.IsMuted,
                 members = data.Members,
@@ -203,6 +206,7 @@ namespace IDMChat.Controllers
                             id = m.UserId,
                             display_name = m.User.DisplayName,
                             avatar_url = m.User.AvatarUrl,
+                            avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(m.User.AvatarUrl),
                             status = m.User.IsOnline ? "online" : "offline"
                         }).ToList()
                         : cm.Conversation.Members
@@ -212,6 +216,7 @@ namespace IDMChat.Controllers
                                 id = m.UserId,
                                 display_name = m.User.DisplayName,
                                 avatar_url = m.User.AvatarUrl,
+                                avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(m.User.AvatarUrl),
                                 status = m.User.IsOnline ? "online" : "offline"
                             }).ToList(),
 
@@ -242,6 +247,7 @@ namespace IDMChat.Controllers
                 type = data.Conversation.Type.ToString(),
                 name = data.Conversation.Type == ConversationType.direct ? data.Members?.FirstOrDefault()?.display_name : data.Conversation.Name,
                 avatar_url = data.Conversation.AvatarUrl,
+                avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(data.Conversation.AvatarUrl),
                 is_pinned = data.IsPinned,
                 is_muted = data.IsMuted,
                 members = data.Members,
@@ -795,6 +801,7 @@ namespace IDMChat.Controllers
                     id = m.UserId,
                     display_name = uCache?.DisplayName ?? "Пользователь",
                     avatar_url = _urlResolver.ResolveUrl(uCache?.AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(uCache?.AvatarUrl),
                     status = _userCache.IsOnline(m.UserId) ? "online" : "offline", // или актуальное состояние
                     is_online = _userCache.IsOnline(m.UserId),
                     custom_status = uCache?.CustomStatus,
@@ -1044,6 +1051,7 @@ namespace IDMChat.Controllers
                     id = m.UserId,
                     display_name = uCache?.DisplayName ?? "Удаленный пользователь",
                     avatar_url = _urlResolver.ResolveUrl(uCache?.AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(m.User.AvatarUrl),
                     status = _userCache.IsOnline(m.UserId) ? "online" : "offline",
                     is_online = _userCache.IsOnline(m.UserId),
                     custom_status = uCache?.CustomStatus,
@@ -1147,6 +1155,7 @@ namespace IDMChat.Controllers
                 id = memberId,
                 display_name = uCache?.DisplayName ?? "Пользователь",
                 avatar_url = _urlResolver.ResolveUrl(uCache?.AvatarUrl),
+                avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(uCache?.AvatarUrl),
                 status = _userCache.IsOnline(memberId) ? "online" : "offline",
                 is_online = _userCache.IsOnline(memberId),
                 custom_status = uCache?.CustomStatus,
@@ -1358,7 +1367,8 @@ namespace IDMChat.Controllers
                         {
                             id = r.UserId,
                             display_name = _userCache.GetDisplayName(r.UserId),
-                            avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(r.UserId).AvatarUrl)
+                            avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(r.UserId).AvatarUrl),
+                            avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(r.UserId).AvatarUrl),
                         }
                     })
                     .ToListAsync(ct);
@@ -1379,7 +1389,8 @@ namespace IDMChat.Controllers
                 {
                     id = m.SenderId,
                     display_name = _userCache.GetDisplayName(m.SenderId),
-                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.SenderId).AvatarUrl)
+                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.SenderId).AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(r.UserId).AvatarUrl),
                 },
                 type = m.Type.ToString().ToLower(),
                 text = m.Text,
@@ -1400,7 +1411,9 @@ namespace IDMChat.Controllers
                     new UserBriefDto() { 
                         id = m.OriginalSenderId.Value, 
                         display_name = _userCache.GetDisplayName(m.OriginalSenderId.Value), 
-                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl) }
+                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl),
+                        avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl),
+                    }
                     : null, 
                 reactions = m.reactions
             }).ToList();
@@ -1450,7 +1463,8 @@ namespace IDMChat.Controllers
                 {
                     id = r.User.Id,
                     display_name = r.User.DisplayName,
-                    avatar_url = r.User.AvatarUrl
+                    avatar_url = r.User.AvatarUrl,
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(r.User.AvatarUrl),
                 })
                 .ToListAsync(ct);
 
@@ -1645,7 +1659,7 @@ namespace IDMChat.Controllers
                 id = messageId,
                 conversation_id = id,
                 sender_id = userId,
-                sender = new UserBriefDto { id = userId, display_name = senderName, avatar_url = senderAvatar },
+                sender = new UserBriefDto { id = userId, display_name = senderName, avatar_url = senderAvatar, avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(senderAvatar), },
                 type = message.Type.ToString().ToLower(),
                 text = request.text,
                 is_edited = true,
@@ -2155,7 +2169,8 @@ namespace IDMChat.Controllers
                     {
                         id = message.SenderId,
                         display_name = senderFromCache?.DisplayName ?? "-",
-                        avatar_url = _urlResolver.ResolveUrl(senderFromCache?.AvatarUrl)
+                        avatar_url = _urlResolver.ResolveUrl(senderFromCache?.AvatarUrl),
+                        avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(senderFromCache?.AvatarUrl),
                     },
 
                     is_forwarded = true,
@@ -2163,7 +2178,8 @@ namespace IDMChat.Controllers
                     {
                         id = message.OriginalSenderId.Value,
                         display_name = originalSenderFromCache?.DisplayName ?? "Удаленный пользователь",
-                        avatar_url = _urlResolver.ResolveUrl(originalSenderFromCache?.AvatarUrl)
+                        avatar_url = _urlResolver.ResolveUrl(originalSenderFromCache?.AvatarUrl),
+                        avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(originalSenderFromCache?.AvatarUrl),
                     }
                 };
 
@@ -2539,7 +2555,8 @@ namespace IDMChat.Controllers
                         {
                             id = r.UserId,
                             display_name = _userCache.GetDisplayName(r.UserId),
-                            avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(r.UserId).AvatarUrl)
+                            avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(r.UserId).AvatarUrl),
+                            avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(r.UserId).AvatarUrl),
                         }
                     })
                     .ToListAsync(ct);
@@ -2560,7 +2577,8 @@ namespace IDMChat.Controllers
                 {
                     id = m.SenderId,
                     display_name = _userCache.GetDisplayName(m.SenderId),
-                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.SenderId).AvatarUrl)
+                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.SenderId).AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(m.SenderId).AvatarUrl),
                 },
                 type = m.Type.ToString().ToLower(),
                 text = m.Text,
@@ -2582,7 +2600,8 @@ namespace IDMChat.Controllers
                     {
                         id = m.OriginalSenderId.Value,
                         display_name = _userCache.GetDisplayName(m.OriginalSenderId.Value),
-                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl)
+                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl),
+                        avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl),
                     }
                     : null,
                 reactions = m.reactions
@@ -2780,7 +2799,8 @@ namespace IDMChat.Controllers
                     {
                         id = r.UserId,
                         display_name = _userCache.GetDisplayName(r.UserId),
-                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(r.UserId).AvatarUrl)
+                        avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(r.UserId).AvatarUrl),
+                        avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(r.UserId).AvatarUrl),
                     })
                     .ToListAsync(ct);
             }
@@ -2794,7 +2814,8 @@ namespace IDMChat.Controllers
                 {
                     id = m.SenderId,
                     display_name = _userCache.GetDisplayName(m.SenderId),
-                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.SenderId).AvatarUrl)
+                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.SenderId).AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(m.SenderId).AvatarUrl),
                 },
                 type = m.Type.ToString().ToLower(),
                 text = m.Text,
@@ -2813,7 +2834,8 @@ namespace IDMChat.Controllers
                 {
                     id = m.OriginalSenderId.Value,
                     display_name = _userCache.GetDisplayName(m.OriginalSenderId.Value),
-                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl)
+                    avatar_url = _urlResolver.ResolveUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(_userCache.GetUser(m.OriginalSenderId.Value).AvatarUrl),
                 } : null,
                 reactions = reactions,
 
@@ -3076,6 +3098,15 @@ namespace IDMChat.Controllers
                 await file.CopyToAsync(stream, ct);
             }
 
+            try
+            {
+                await FilesController.GenerateImageThumbnailWithFfmpeg(filePath, 200, 200);
+            }
+            catch (Exception ex)
+            {
+                //_logger.LogError(ex, "Ошибка при генерации FFmpeg-миниатюры для аватара пользователя {UserId}", userId);
+            }
+
             // 6. Формируем URL
             var avatarUrl = Path.Combine("avatars", "conversations", fileName);
 
@@ -3164,6 +3195,7 @@ namespace IDMChat.Controllers
                     id = memberId,
                     display_name = user?.DisplayName ?? "Сотрудник",
                     avatar_url = _urlResolver.ResolveUrl(user?.AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(m.User.AvatarUrl),
                     status = _userCache.IsOnline(memberId) ? "online" : "offline",
                     custom_status = user?.CustomStatus,
                     is_online = _userCache.IsOnline(memberId),
@@ -3222,6 +3254,7 @@ namespace IDMChat.Controllers
                 type = data.Conversation.Type.ToString().ToLower(),
                 name = chatName,
                 avatar_url = chatAvatar ?? "",
+                avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(chatAvatar),
                 is_pinned = data.IsPinned,
                 is_muted = data.IsMuted,
                 members = membersList,
