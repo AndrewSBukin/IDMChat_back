@@ -22,14 +22,16 @@ public class AuthController : ControllerBase
     private readonly IChatPathUrlResolver _urlResolver;
     private readonly IIdmApiClient _idmClient;
     private readonly UserCache _userCache;
+    private readonly IAuthContextService _authContextService;
 
-    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient)
+    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient, IAuthContextService authContextService)
     {
         _dbContext = dbContext;
         _config = config;
         _urlResolver = urlResolver;
         _idmClient = idmClient;
         _userCache = userCache;
+        _authContextService = authContextService;
     }
 
     class IdmUser
@@ -87,6 +89,16 @@ public class AuthController : ControllerBase
                 Username = dto.Username
             };
             _dbContext.Users.Add(localUser);
+            await _dbContext.SaveChangesAsync(ct);
+
+            var defaultProfile = new UserProfile
+            {
+                UserId = localUser.Id,
+                RoleId = null, // Будет настроено позже через админку, либо привяжите дефолтную роль
+                DefaultSectionKey = null,
+                ClubLandingSectionKey = null
+            };
+            _dbContext.UserProfiles.Add(defaultProfile);
         }
         else
         {
@@ -117,6 +129,8 @@ public class AuthController : ControllerBase
         _dbContext.Users.Update(localUser);
         await _dbContext.SaveChangesAsync();
 
+        var authContext = await _authContextService.GetContextAsync(localUser.Id, ct);
+
         // Генерируем токены
         var userDto = new UserDto
         {
@@ -125,7 +139,16 @@ public class AuthController : ControllerBase
             display_name = localUser.DisplayName ?? localUser.Username,
             avatar_url = _urlResolver.ResolveUrl(localUser.AvatarUrl), 
             is_online = true, 
-            last_seen_at = localUser.LastSeenAt
+            last_seen_at = localUser.LastSeenAt,
+
+            role = authContext.user.role,
+            //fullName = authContext.user.fullName,
+            clubLandingKey = authContext.user.clubLandingKey,
+            defaultSection = authContext.user.defaultSection != null ? new DefaultSectionDto
+            {
+                key = authContext.user.defaultSection.key,
+                scope = authContext.user.defaultSection.scope
+            } : null
         };
 
         var accessToken = GenerateAccessToken(userDto);
@@ -148,7 +171,21 @@ public class AuthController : ControllerBase
             access_token = accessToken,
             refresh_token = refreshToken,
             expires_in = expiresIn,
-            user = userDto
+            user = userDto,
+
+            permissions = authContext.permissions,
+            limits = authContext.limits,
+            clubs = authContext.clubs.Select(c => new ClubDto
+            {
+                id = c.id,
+                bbID = c.bbid,
+                name = c.name,
+                city = new CityDto
+                {
+                    name = c.city.name,
+                    gmt = c.city.gmt
+                }
+            }).ToList(),
         });
     }
 

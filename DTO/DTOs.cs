@@ -3,6 +3,7 @@ using IDMChat.Models;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace IDMChat.DTO
 {
@@ -31,11 +32,38 @@ namespace IDMChat.DTO
         public string refresh_token { get; set; }
         public int expires_in { get; set; }
         public UserDto user { get; set; }
+        public List<string> permissions { get; set; } = new List<string>();
+        public Dictionary<string, int> limits { get; set; } = new Dictionary<string, int>();
+        public List<ClubDto> clubs { get; set; } = new List<ClubDto>();
+        public List<MenuDto> menu { get; set; } = new List<MenuDto>();
+    }
+    public class ClubDto
+    {
+        public int id { get; set; }
+        public string bbID { get; set; } = string.Empty;
+        public string name { get; set; } = string.Empty;
+        public CityDto city { get; set; } = new CityDto();
+    }
+    public class CityDto
+    {
+        public int gmt { get; set; }
+        public string name { get; set; } = string.Empty;
+
     }
     public class RefreshResultDto
     {
-        public string access_token { get; set; }
+        public string access_token { get; set; } = string.Empty;
         public int expires_in { get; set; }
+    }
+    public class MenuDto
+    {
+        public string key { get; set; } = string.Empty;
+        public string scope { get; set; } = string.Empty;
+        public string title { get; set; } = string.Empty;
+        public string icon { get; set; } = string.Empty;
+        public int order { get; set; }
+        public List<MenuDto> children { get; set; } = new List<MenuDto>();
+
     }
     #endregion
 
@@ -526,6 +554,15 @@ namespace IDMChat.DTO
         public string? custom_status { get; set; }
         public bool is_online { get; set; }
         public DateTime last_seen_at { get; set; }
+        public string? role { get; set; }
+        public DefaultSectionDto? defaultSection { get; set; }
+        public string? clubLandingKey { get; set; }
+    }
+    public class DefaultSectionDto
+    {
+        public string? key { get; set; }
+        public string? scope { get; set; }
+
     }
     public record UsersDto
     {
@@ -593,4 +630,84 @@ namespace IDMChat.DTO
         public Guid conversation_id { get; set; }
         public List<string> unread_mention_ids { get; set; } = new();
     }
+
+    #region Menu & Access
+    public enum AccessEffect
+    {
+        Grant = 1, // Явно разрешено (имеет приоритет над дефолтом роли)
+        Deny = 2   // Явно запрещено (блокирует доступ, даже если роль разрешает)
+    }
+
+    public class AuthContextResponse
+    {
+        public AuthUserDto user { get; set; } = null!;
+
+        public List<string> permissions { get; set; } = new();
+
+        public Dictionary<string, int> limits { get; set; } = new();
+
+        public List<ThinClubDto> clubs { get; set; } = new();
+
+        public List<MenuItemDto> menu { get; set; } = new();
+    }
+
+    public class AuthUserDto
+    {
+        public string id { get; set; } = string.Empty;
+
+        public string fullName { get; set; } = string.Empty;
+
+        public string role { get; set; } = string.Empty; // "manager", "cashier" для подписи в UI
+
+        public SectionPointerDto? defaultSection { get; set; }
+
+        public string? clubLandingKey { get; set; }
+    }
+
+    public class SectionPointerDto
+    {
+        public string key { get; set; } = string.Empty;
+
+        public string scope { get; set; } = string.Empty; // "app" или "club"
+    }
+
+    public class ThinClubDto
+    {
+        public int id { get; set; }
+
+        public string bbid { get; set; } = string.Empty;
+
+        public string name { get; set; } = string.Empty;
+
+        public CityDto city { get; set; } = null!;
+    }
+
+
+    public class MenuItemDto
+    {
+        public string key { get; set; } = string.Empty;
+
+        public string scope { get; set; } = string.Empty; // "app" или "club"
+
+        public string title { get; set; } = string.Empty;
+
+        public string icon { get; set; } = string.Empty; // Семантический ключ иконки ("chat", "home")
+
+        public int order { get; set; }
+
+        public List<MenuItemChildDto> children { get; set; } = new();
+    }
+
+
+    public class MenuItemChildDto
+    {
+        public string key { get; set; } = string.Empty;
+
+        public string title { get; set; } = string.Empty;
+
+        public string icon { get; set; } = string.Empty;
+
+        public int order { get; set; }
+    }
+    #endregion
 }

@@ -4,6 +4,7 @@ using IDMChat.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IDMChat.Migrations
 {
     [DbContext(typeof(ChatDbContext))]
-    partial class ChatDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260727084811_V23-MenuAccess")]
+    partial class V23MenuAccess
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -75,42 +78,6 @@ namespace IDMChat.Migrations
                     b.HasIndex("ConversationId");
 
                     b.ToTable("ChatFolderItems");
-                });
-
-            modelBuilder.Entity("IDMChat.Models.Club", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("CityGmt")
-                        .HasColumnType("int");
-
-                    b.Property<string>("CityName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("Idm")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Clubs");
                 });
 
             modelBuilder.Entity("IDMChat.Models.Conversation", b =>
@@ -826,34 +793,6 @@ namespace IDMChat.Migrations
                     b.ToTable("UserPermissionOverrides");
                 });
 
-            modelBuilder.Entity("IDMChat.Models.UserProfile", b =>
-                {
-                    b.Property<Guid>("UserId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ClubLandingSectionKey")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("DefaultSectionKey")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<Guid?>("RoleId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("UserId");
-
-                    b.HasIndex("ClubLandingSectionKey");
-
-                    b.HasIndex("DefaultSectionKey");
-
-                    b.HasIndex("RoleId");
-
-                    b.ToTable("UserProfiles");
-                });
-
             modelBuilder.Entity("IDMChat.Models.UserSectionOverride", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -1100,27 +1039,6 @@ namespace IDMChat.Migrations
                         .IsRequired();
 
                     b.Navigation("Permission");
-                });
-
-            modelBuilder.Entity("IDMChat.Models.UserProfile", b =>
-                {
-                    b.HasOne("IDMChat.Models.Section", "ClubLandingSection")
-                        .WithMany()
-                        .HasForeignKey("ClubLandingSectionKey");
-
-                    b.HasOne("IDMChat.Models.Section", "DefaultSection")
-                        .WithMany()
-                        .HasForeignKey("DefaultSectionKey");
-
-                    b.HasOne("IDMChat.Models.Role", "Role")
-                        .WithMany()
-                        .HasForeignKey("RoleId");
-
-                    b.Navigation("ClubLandingSection");
-
-                    b.Navigation("DefaultSection");
-
-                    b.Navigation("Role");
                 });
 
             modelBuilder.Entity("IDMChat.Models.UserSectionOverride", b =>
