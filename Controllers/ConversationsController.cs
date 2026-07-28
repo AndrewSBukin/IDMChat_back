@@ -1051,7 +1051,7 @@ namespace IDMChat.Controllers
                     id = m.UserId,
                     display_name = uCache?.DisplayName ?? "Удаленный пользователь",
                     avatar_url = _urlResolver.ResolveUrl(uCache?.AvatarUrl),
-                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(m.User.AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(uCache?.AvatarUrl),
                     status = _userCache.IsOnline(m.UserId) ? "online" : "offline",
                     is_online = _userCache.IsOnline(m.UserId),
                     custom_status = uCache?.CustomStatus,
