@@ -375,6 +375,10 @@ namespace IDMChat.DTO
         public string? avatar_url { get; internal set; }
         public DateTime? updated_at { get; internal set; }
         public LastMessageDto? last_message { get; internal set; }
+        public string? avatar_thumb_url { get; set; }
+        public int unread_count { get; internal set; }
+        public List<string> unread_mention_ids { get; internal set; }
+        public List<MemberResponse> participants { get; internal set; }
     }
     public class ReplyPreviewDto
     {

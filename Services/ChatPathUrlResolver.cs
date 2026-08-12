@@ -22,27 +22,62 @@
         {
             if (string.IsNullOrWhiteSpace(relativePath)) return null;
 
-            // 1. Пытаемся получить контекст текущего HTTP-запроса пользователя
+            // --- НАЧАЛО БЛОКА ЗАЩИТЫ И АВТОНОМНОЙ ФИЛЬТРАЦИИ ---
+            // 1. Защита: если это уже готовая ссылка, отдаем её без изменений
+            if (relativePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                relativePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return relativePath;
+            }
+
+            // Унифицируем разделители пути (заменяем Windows бэкслеши на веб-слэши)
+            var cleanPath = relativePath.Replace('\\', '/');
+
+            // 2. Автономное вычисление относительного пути
+            // Список ключевых папок, с которых обычно начинаются относительные пути в вашем чате
+            var storageFolders = new[] { "avatars/", "attachments/", "thumbnails/", "files/" };
+
+            foreach (var folder in storageFolders)
+            {
+                // Ищем, где в абсолютном пути (например, "C:/app/www/storage/avatars/abc.jpg") начинается наша папка
+                int index = cleanPath.IndexOf(folder, StringComparison.OrdinalIgnoreCase);
+                if (index != -1)
+                {
+                    // Отрезаем всё, что шло ДО этой папки (останется строго: "avatars/abc.jpg")
+                    cleanPath = cleanPath.Substring(index);
+                    break; // Папка найдена, выходим из цикла
+                }
+            }
+
+            // Если путь всё еще выглядит как абсолютный путь диска Windows (например, "C:/...") или Linux ("/var/..."),
+            // и он не совпал ни с одной папкой из списка, забираем только имя файла во избежание поломки URL
+            if (Path.IsPathRooted(relativePath) && (cleanPath.Contains(":/") || cleanPath.StartsWith("/")))
+            {
+                cleanPath = Path.GetFileName(cleanPath);
+            }
+
+            // Убираем лишние ведущие слэши
+            cleanPath = cleanPath.TrimStart('/');
+            // --- КОНЕЦ БЛОКА ФИЛЬТРАЦИИ ---
+
+            // 3. Сборка базового домена
             var context = _httpContextAccessor.HttpContext;
             string baseUrl;
 
             if (context != null && !string.IsNullOrEmpty(context.Request.Host.Value))
             {
-                // Собираем домен динамически на основе текущего подключения сотрудника
                 baseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
             }
             else
             {
-                // Если контекста нет (например, фоновый воркер), берем адрес из конфига
                 baseUrl = _fallbackBaseUrl.TrimEnd('/');
             }
 
-            // Унифицируем разделители пути (на случай, если в базе где-то проскочил бэкслеш)
-            var cleanRelativePath = relativePath.Replace('\\', '/').TrimStart('/');
-
-            // Наш единый эндпоинт раздачи в FilesController — это api/files/{**filePath}
-            return $"{baseUrl}/api/files/{cleanRelativePath}";
+            // Возвращаем идеальный, чистый веб-URL для фронтенда
+            return $"{baseUrl}/api/files/{cleanPath}";
         }
+
+
 
         public string? ResolveAvatarThumbUrl(string? relativePath)
         {

@@ -408,14 +408,32 @@ namespace IDMChat.Controllers
             //    _cache.InvalidateUserConversations(memberId);
             //}
 
-            // Уведомление участников (кроме себя)
-            var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, ct);
-            if (conversation.Type == ConversationType.direct)
-                (conversationUpdatedDto.name, conversationUpdatedDto.avatar_url) = await GetUserDisplayNameAndAvatar(userId);
-            var allMemberIdsStr = allMemberIds.Where(x => x != userId).Select(m => m.ToString()).ToList();
-            await _hubContext.Clients.Users(allMemberIdsStr).SendAsync("conversation_new", conversationUpdatedDto, ct);
+            // --- ОБНОВЛЕННЫЙ БЛОК ПЕРСОНАЛЬНОЙ РАССЫЛКИ ДЛЯ CONVERSATION_NEW ---
 
-            return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, conversationUpdatedDto);
+            // 1. Фильтруем получателей: уведомляем всех участников чата, КРОМЕ автора (себя)
+            var recipients = allMemberIds.Where(id => id != userId).ToList();
+
+            foreach (var recipientId in recipients)
+            {
+                // 2. Генерируем персональный DTO строго для конкретного получателя (recipientId)
+                // Метод внутри сам посчитает его unread_count, меншены и подставит имя собеседника, если это direct
+                var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, recipientId, ct);
+
+                // 3. Получаем connectionId из вашего _userCache для адресной отправки в WebSocket
+                var connectionId = _userCache.GetConnectionId(recipientId);
+
+                if (!string.IsNullOrEmpty(connectionId))
+                {
+                    // Отправляем персонально в сокет. Без await в цикле (fire-and-forget), 
+                    // чтобы не блокировать основной поток выполнения API
+                    _ = _hubContext.Clients.Client(connectionId).SendAsync("conversation_new", conversationUpdatedDto, ct);
+                }
+            }
+
+            var conversationUpdatedDtoForMe = await BuildConversationUpdatedDto(conversation, userId, ct);
+
+            // 3. Возвращаем HTTP 201 Created с телом ответа для создателя
+            return CreatedAtAction(nameof(GetConversation), new { id = conversation.Id }, conversationUpdatedDtoForMe);
             //return StatusCode(201, response);
         }
 
@@ -424,54 +442,129 @@ namespace IDMChat.Controllers
             var user = _userCache.GetUser(userId);
             return (user.DisplayName, _urlResolver.ResolveUrl(user.AvatarUrl));
         }
-        async Task<ConversationUpdatedDto> BuildConversationUpdatedDto(Conversation conversation, CancellationToken ct = default)
+        async Task<ConversationUpdatedDto> BuildConversationUpdatedDto(
+    Conversation conversation,
+    Guid userId,
+    CancellationToken ct = default)
         {
-            var message = await _db.Messages.AsTracking()
-                .FirstOrDefaultAsync(m => m.Id == conversation.LastMessageId && m.ConversationId == conversation.Id, ct);
+            // 1. Извлекаем данные участника. Если записи в БД еще нет, подставим дефолтные нули
+            var memberData = await _db.ConversationMembers
+                .Where(cm => cm.ConversationId == conversation.Id && cm.UserId == userId)
+                .Select(cm => new { cm.UnreadCount, cm.LastReadMessageId })
+                .FirstOrDefaultAsync(ct);
 
-            var attachments = await _db.FileAttachments
-                .Where(a => conversation.LastMessageId != null &&  a.MessageId == conversation.LastMessageId)
-                .Select(a => new AttachmentDto
+            // 2. ДИНАМИЧЕСКИЙ РАСЧЕТ НЕПРОЧИТАННЫХ УПОМИНАНИЙ
+            // Если чат только создан или сообщений нет, запрос вернет пустой список [] без ошибок
+            var unreadMentionIds = await _db.Messages
+                .Where(m => m.ConversationId == conversation.Id
+                         && !m.IsDeleted
+                         && (memberData == null || memberData.LastReadMessageId == null || m.Id > memberData.LastReadMessageId)
+                         && m.Mentions.Any(mention => mention.UserId == userId))
+                .OrderBy(m => m.Id)
+                .Select(m => m.Id.ToString())
+                .ToListAsync(ct);
+
+            // 3. ПОЛУЧЕНИЕ УЧАСТНИКОВ (participants)
+            var participants = await _db.ConversationMembers
+                .Where(cm => cm.ConversationId == conversation.Id && (conversation.Type == ConversationType.group || cm.UserId != userId))
+                .Select(cm => new MemberResponse
                 {
-                    id = a.Id,
-                    file_name = a.FileName,
-                    file_size = a.FileSize,
-                    mime_type = a.MimeType,
-                    url = _urlResolver.ResolveUrl(a.StoragePath),
-                    thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
+                    id = cm.UserId,
+                    display_name = cm.User.DisplayName ?? "Сотрудник",
+                    avatar_url = _urlResolver.ResolveUrl(cm.User.AvatarUrl),
+                    avatar_thumb_url = _urlResolver.ResolveAvatarThumbUrl(cm.User.AvatarUrl),
+                    status = _userCache.IsOnline(cm.UserId) ? "online" : "offline",
+                    custom_status = cm.User.CustomStatus,
+                    is_online = _userCache.IsOnline(cm.UserId),
+                    last_seen_at = cm.User.LastSeenAt,
+                    role = conversation.OwnerId == cm.UserId ? "owner" : (cm.IsAdmin ? "admin" : "member"),
+                    joined_at = cm.JoinedAt
                 })
                 .ToListAsync(ct);
 
-            var sender_name = "";
-            if (conversation.LastMessageSenderId.HasValue)
-            {
-                var sender = _userCache.GetUser(conversation.LastMessageSenderId.Value);
-                sender_name = sender?.DisplayName;
-            }
+            // 4. Получение последнего сообщения и вложений (с защитой от null)
             LastMessageDto? lastMessagePreview = null;
-            if (message != null)
-                lastMessagePreview = new LastMessageDto
-                {
-                    id = message.Id,
-                    text = conversation.LastMessageText ?? "",
-                    type = message.Type.ToString().ToLower(),
-                    sender_id = message.SenderId,
-                    sender_name = sender_name ?? "ошибка получения имени  ",
-                    created_at = message.CreatedAt,
-                    attachments = attachments
-                };
+            DateTime? lastMessageUpdatedAt = null;
 
+            if (conversation.LastMessageId.HasValue)
+            {
+                var message = await _db.Messages.AsNoTracking()
+                    .FirstOrDefaultAsync(m => m.Id == conversation.LastMessageId && m.ConversationId == conversation.Id, ct);
+
+                if (message != null)
+                {
+                    lastMessageUpdatedAt = message.UpdatedAt;
+
+                    var attachments = await _db.FileAttachments
+                        .Where(a => a.MessageId == conversation.LastMessageId)
+                        .Select(a => new AttachmentDto
+                        {
+                            id = a.Id,
+                            file_name = a.FileName,
+                            file_size = a.FileSize,
+                            mime_type = a.MimeType,
+                            url = _urlResolver.ResolveUrl(a.StoragePath),
+                            thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
+                        })
+                        .ToListAsync(ct);
+
+                    var sender_name = "";
+                    if (conversation.LastMessageSenderId.HasValue)
+                    {
+                        var sender = _userCache.GetUser(conversation.LastMessageSenderId.Value);
+                        sender_name = sender?.DisplayName;
+                    }
+
+                    lastMessagePreview = new LastMessageDto
+                    {
+                        id = message.Id,
+                        text = conversation.LastMessageText ?? "",
+                        type = message.Type.ToString().ToLower(),
+                        sender_id = message.SenderId,
+                        sender_name = sender_name ?? "ошибка получения имени  ",
+                        created_at = message.CreatedAt,
+                        attachments = attachments
+                    };
+                }
+            }
+
+            // 5. Обработка отображения Direct-чатов (Собеседник)
+            var conversationName = conversation.Name;
+            var conversationAvatar = _urlResolver.ResolveUrl(conversation.AvatarUrl);
+            var conversationAvatarThumb = _urlResolver.ResolveAvatarThumbUrl(conversation.AvatarUrl);
+
+            if (conversation.Type == ConversationType.direct)
+            {
+                // Находим собеседника. Защита: если список пуст (чат только создается), 
+                // пытаемся подтянуть данные напрямую, но обычно в созданном direct-чате уже есть 2 записи
+                var interlocutor = participants.FirstOrDefault();
+                if (interlocutor != null)
+                {
+                    conversationName = interlocutor.display_name;
+                    conversationAvatar = interlocutor.avatar_url;
+                    conversationAvatarThumb = interlocutor.avatar_thumb_url;
+                }
+            }
+
+            // Собираем итоговый DTO, устойчивый к пустым чатам
             var conversationUpdatedDto = new ConversationUpdatedDto
             {
                 id = conversation.Id,
                 type = conversation.Type.ToString().ToLower(),
-                name = conversation.Name,
-                avatar_url = conversation.AvatarUrl,
-                last_message = lastMessagePreview,
-                updated_at = message?.UpdatedAt
+                name = conversationName,
+                avatar_url = conversationAvatar,
+                avatar_thumb_url = conversationAvatarThumb,
+                last_message = lastMessagePreview, // Будет null, если чат пустой — фронтенд это ожидает
+                updated_at = lastMessageUpdatedAt ?? conversation.UpdatedAt, // Если сообщений нет, шлем дату создания чата
+
+                participants = participants,
+                unread_count = memberData?.UnreadCount ?? 0, // Защита: 0, если профиля участника еще нет
+                unread_mention_ids = unreadMentionIds
             };
+
             return conversationUpdatedDto;
         }
+
 
         /// <summary>
         /// Обновить название или аватар группы (только для администратора)
@@ -536,31 +629,33 @@ namespace IDMChat.Controllers
             if(hasChanges)
                 _newMessageService.HandleSendSystemMessage(conversation.Id, sysmessage, ct);
 
-            // 7. Возвращаем обновлённый объект чата
-            var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, ct);
+            // --- ОБНОВЛЕННЫЙ БЛОК ДЛЯ МЕТОДА ОБНОВЛЕНИЯ ДИАЛОГА ---
 
-            // Отправляем всем участникам чата
-            var allMemberIds = conversation.Members.Select(m => m.UserId.ToString()).ToList();
-            if (conversation.Type == ConversationType.direct)
+            // 1. Быстро вытягиваем ID всех участников этого чата из базы (без Lazy Loading всей коллекции)
+            var allMemberIds = await _db.ConversationMembers
+                .Where(cm => cm.ConversationId == id)
+                .Select(cm => cm.UserId)
+                .ToListAsync(ct);
+
+            // 2. Персональная рассылка по SignalR КАЖДОМУ участнику чата
+            foreach (var memberId in allMemberIds)
             {
-                var otherUserId = await _db.ConversationMembers.Where(cm => cm.ConversationId == id).Select(x => x.UserId)
-                .FirstOrDefaultAsync(u => u != userId, ct);
+                // Генерируем DTO строго под конкретного получателя (его счетчики + его отображение собеседника)
+                var dtoForMember = await BuildConversationUpdatedDto(conversation, memberId, ct);
 
-                (conversationUpdatedDto.name, conversationUpdatedDto.avatar_url) = await GetUserDisplayNameAndAvatar(otherUserId);
-                await _hubContext.Clients.User(userId.ToString().ToLower())
-                    .SendAsync("conversation_updated", conversationUpdatedDto, ct);
-
-                (conversationUpdatedDto.name, conversationUpdatedDto.avatar_url) = await GetUserDisplayNameAndAvatar(userId);
-                await _hubContext.Clients.User(otherUserId.ToString().ToLower())
-                    .SendAsync("conversation_updated", conversationUpdatedDto, ct);
-            }
-            else
-            {
-                await _hubContext.Clients.Users(allMemberIds)
-                    .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+                var connectionId = _userCache.GetConnectionId(memberId);
+                if (!string.IsNullOrEmpty(connectionId))
+                {
+                    // Отправляем асинхронно в фоне (fire-and-forget), не блокируя поток
+                    _ = _hubContext.Clients.Client(connectionId).SendAsync("conversation_updated", dtoForMember, ct);
+                }
             }
 
-            return Ok(conversationUpdatedDto);
+            // 3. Формируем DTO для HTTP-ответа автору запроса (текущему пользователю)
+            var conversationUpdatedDtoForMe = await BuildConversationUpdatedDto(conversation, userId, ct);
+
+            return Ok(conversationUpdatedDtoForMe);
+
         }
 
         /// <summary>
@@ -751,6 +846,20 @@ namespace IDMChat.Controllers
             if (!newMemberIds.Any())
                 return Ok(new { added = 0, items = new List<MemberResponse>(), message = "Нет новых участников для добавления" });
 
+            long? lastMessageId = await _db.Conversations
+                .Where(c => c.Id == id)
+                .Select(c => c.LastMessageId)
+                .FirstOrDefaultAsync(ct);
+
+            if (lastMessageId == null)
+            {
+                lastMessageId = await _db.Messages
+                    .Where(m => m.ConversationId == id && !m.IsDeleted)
+                    .OrderByDescending(m => m.Id)
+                    .Select(m => (long?)m.Id)
+                    .FirstOrDefaultAsync(ct);
+            }
+
             // 6. Проверка компании (если не админ)
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
             if (currentUser.Role != UserRole.Admin)
@@ -775,7 +884,7 @@ namespace IDMChat.Controllers
                 IsMuted = false,
                 UnreadCount = 0,
                 JoinedAt = DateTime.UtcNow,
-                LastReadMessageId = null
+                LastReadMessageId = lastMessageId
             }).ToList();
 
             _db.ConversationMembers.AddRange(newMembers);
@@ -814,12 +923,26 @@ namespace IDMChat.Controllers
                 //await _hubContext.Clients.Group(id.ToString()).SendAsync("members_added", new { conversationId = id, member = memberDto });
             }
 
-            // Уведомления через хаб
-            var fullConversation = await BuildConversationUpdatedDto(conversation, ct);
+            // --- ОБНОВЛЕННЫЙ БЛОК УВЕДОМЛЕНИЙ ПРИ ДОБАВЛЕНИИ УЧАСТНИКОВ К ЧАТУ ---
+
             foreach (var newMemberId in newMemberIds)
             {
-                await _hubContext.Clients.User(newMemberId.ToString()).SendAsync("conversation_new", fullConversation);
+                // 1. Генерируем DTO ПЕРСОНАЛЬНО для каждого нового участника
+                // Метод внутри обнулит счетчики для этого юзера (ведь он только вошел) 
+                // и правильно настроит иерархию имен, если это direct-чат
+                var dtoForNewMember = await BuildConversationUpdatedDto(conversation, newMemberId, ct);
+
+                // 2. Получаем connectionId из вашего _userCache для адресной отправки в WebSocket
+                var connectionId = _userCache.GetConnectionId(newMemberId);
+
+                if (!string.IsNullOrEmpty(connectionId))
+                {
+                    // 3. Отправляем событие в сокет конкретному человеку.
+                    // Используем fire-and-forget (без await в цикле), чтобы не тормозить HTTP-поток метода API
+                    _ = _hubContext.Clients.Client(connectionId).SendAsync("conversation_new", dtoForNewMember, ct);
+                }
             }
+
 
             // Уведомить остальных участников
             await _hubContext.Clients.Group(id.ToString()).SendAsync("members_added", new { conversation_id = id, member_ids = newMemberIds, added_by = userId });
@@ -879,6 +1002,10 @@ namespace IDMChat.Controllers
             if (isTargetAdmin && !isCallerOwner)
                 return StatusCode(403, new { error = new { code = "CANNOT_REMOVE_ADMIN", message = "Только владелец группы может исключить администратора" } });
 
+            var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
+            var removedUser = await _db.Users.FindAsync(new object[] { memberId }, ct);
+            var targetConnectionId = _userCache.GetConnectionId(memberId);
+
 
             // 6. Удаляем участника
             _db.ConversationMembers.Remove(targetMember);
@@ -891,11 +1018,17 @@ namespace IDMChat.Controllers
 
 
             // 7. Системное сообщение
-            var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
-            var removedUser = await _db.Users.FindAsync(new object[] { memberId }, ct);
+            //var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
+            //var removedUser = await _db.Users.FindAsync(new object[] { memberId }, ct);
             await _newMessageService.HandleSendSystemMessage(id, $"{currentUser.DisplayName} удалил(а) {removedUser?.DisplayName ?? memberId.ToString()}", ct);
 
             await _hubContext.Clients.Group(id.ToString()).SendAsync("members_removed", new { conversation_id = id, member_ids = new[] { memberId }, removed_by = userId });
+            // Гарантированно шлем это же событие ИСКЛЮЧЕННОМУ пользователю лично в сокет, если он онлайн
+            if (!string.IsNullOrEmpty(targetConnectionId))
+            {
+                await _hubContext.Clients.Client(targetConnectionId).SendAsync("members_removed", new { conversation_id = id, member_ids = new[] { memberId }, removed_by = userId });
+                await _hubContext.Clients.Client(targetConnectionId).SendAsync("conversation_deleted", new { conversation_id = id });
+            }
 
             // 9. Инвалидируем кэш
             _chatCache.Invalidate(id);
@@ -3119,13 +3252,33 @@ namespace IDMChat.Controllers
             // 8. Инвалидируем кэш
             _chatCache.Invalidate(id);
 
-            // 9. Возвращаем обновлённый объект чата
-            var conversationUpdatedDto = await BuildConversationUpdatedDto(conversation, ct);
+            // --- ОБНОВЛЕННЫЙ БЛОК ДЛЯ МЕТОДА ОБНОВЛЕНИЯ АВАТАРА ЧАТА ---
 
-            // Отправляем всем участникам чата
-            var allMemberIds = conversation.Members.Select(m => m.UserId.ToString()).ToList();
-            await _hubContext.Clients.Users(allMemberIds)
-                .SendAsync("conversation_updated", conversationUpdatedDto, ct);
+            // 1. Извлекаем ID всех участников этого чата из базы данных (быстро, по индексу)
+            var allMemberIds = await _db.ConversationMembers
+                .Where(cm => cm.ConversationId == id)
+                .Select(cm => cm.UserId)
+                .ToListAsync(ct);
+
+            // 2. Персональная рассылка по SignalR КАЖДОМУ участнику чата
+            foreach (var memberId in allMemberIds)
+            {
+                // Генерируем DTO персонально под конкретного получателя 
+                // (метод подтянет ЕГО счетчики, ЕГО меншены и правильно разрешит аватар_thumb_url)
+                var dtoForMember = await BuildConversationUpdatedDto(conversation, memberId, ct);
+
+                var connectionId = _userCache.GetConnectionId(memberId);
+                if (!string.IsNullOrEmpty(connectionId))
+                {
+                    // Отправляем асинхронно в фоне (fire-and-forget), не блокируя HTTP-поток
+                    _ = _hubContext.Clients.Client(connectionId).SendAsync("conversation_updated", dtoForMember, ct);
+                }
+            }
+
+            // 3. Формируем DTO для HTTP-ответа автору запроса (текущему пользователю, кто менял аватар)
+            var conversationUpdatedDtoForMe = await BuildConversationUpdatedDto(conversation, userId, ct);
+
+            return Ok(conversationUpdatedDtoForMe);
 
             return Ok(new UploadAvatarResult { avatar_url = _urlResolver.ResolveUrl(avatarUrl) });
         }
