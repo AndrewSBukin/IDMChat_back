@@ -179,7 +179,7 @@ namespace IDMChat.Services
 
                             if (!string.IsNullOrEmpty(connectionId))
                             {
-                                // 1. Старое событие: строго в прежнем формате (без упоминаний)
+                                // 1. unread_count_updated (без упоминаний)
                                 _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", new
                                 {
                                     conversation_id = conversationId,
@@ -187,7 +187,7 @@ namespace IDMChat.Services
                                     last_read_message_id = memberInfo.LastReadMessageId?.ToString()
                                 }, ct);
 
-                                // 2. 🔥 НОВОЕ ОТДЕЛЬНОЕ СОБЫТИЕ: отправляем только список ID упоминаний
+                                // 2. отправляем только список ID упоминаний
                                 var mentionsPayload = new UnreadMentionsUpdatedPayload
                                 {
                                     conversation_id = conversationId,
@@ -331,6 +331,7 @@ namespace IDMChat.Services
                     {
                         BatchResponse batchResponse = await messagingInstance.SendEachAsync(chunk, ct);
                         bool needsDbSave = false;
+                        var deadTokenStrings = new List<string>();
 
                         for (int i = 0; i < batchResponse.Responses.Count; i++)
                         {
@@ -343,13 +344,14 @@ namespace IDMChat.Services
                                 {
                                     _logger.LogWarning("Токен устройства устарел: {Token}. Пометка на удаление...", failedMessage.Token);
 
-                                    // Ищем токен в бд по значению строки, чтобы удалить
-                                    var deadTokenObj = await db.DeviceTokens.FirstOrDefaultAsync(d => d.Token == failedMessage.Token, ct);
-                                    if (deadTokenObj != null)
-                                    {
-                                        db.DeviceTokens.Remove(deadTokenObj);
-                                        needsDbSave = true;
-                                    }
+                                    deadTokenStrings.Add(failedMessage.Token);
+                                    //// Ищем токен в бд по значению строки, чтобы удалить
+                                    //var deadTokenObj = await db.DeviceTokens.FirstOrDefaultAsync(d => d.Token == failedMessage.Token, ct);
+                                    //if (deadTokenObj != null)
+                                    //{
+                                    //    db.DeviceTokens.Remove(deadTokenObj);
+                                    //    needsDbSave = true;
+                                    //}
                                 }
                                 else
                                 {
@@ -358,11 +360,21 @@ namespace IDMChat.Services
                             }
                         }
 
-                        // Сохраняем пачкой все удаления "мёртвых" токенов, если они были зафиксированы
-                        if (needsDbSave)
-                        {
-                            await db.SaveChangesAsync(ct);
+                        if (deadTokenStrings.Any()) 
+                        { 
+                            var tokensToRemove = await db.DeviceTokens.Where(d => deadTokenStrings.Contains(d.Token)).ToListAsync(ct); 
+                            if (tokensToRemove.Any()) 
+                            { 
+                                db.DeviceTokens.RemoveRange(tokensToRemove); 
+                                await db.SaveChangesAsync(ct); 
+                            } 
                         }
+
+                        //// Сохраняем пачкой все удаления "мёртвых" токенов, если они были зафиксированы
+                        //if (needsDbSave)
+                        //{
+                        //    await db.SaveChangesAsync(ct);
+                        //}
                     }
                 }
 
