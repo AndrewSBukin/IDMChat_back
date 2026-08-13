@@ -1,0 +1,252 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Управление оверрайдами пользователей</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            font-size: 12px;
+            background: #f9f9f9;
+            color: #333;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            background: #fff;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+            .toolbar input {
+                padding: 5px 8px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+            }
+
+            .toolbar button {
+                padding: 5px 12px;
+                background: #007acc;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                cursor: pointer;
+            }
+
+        .matrix-table {
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            width: 100%;
+            table-layout: fixed;
+        }
+
+            .matrix-table th, .matrix-table td {
+                border: 1px solid #ddd;
+                padding: 4px 8px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .matrix-table th {
+                background: #f0f0f0;
+                position: sticky;
+                top: 0;
+            }
+
+        .section-row {
+            background: #eaf4ff;
+            font-weight: bold;
+        }
+
+        .text-muted {
+            color: #777;
+            font-size: 10px;
+        }
+
+        /* Стилизация тройных переключателей */
+        .state-default-yes {
+            background-color: #f0f0f0;
+            color: #2e7d32;
+            font-weight: bold;
+        }
+
+        .state-default-no {
+            background-color: #f0f0f0;
+            color: #c62828;
+        }
+
+        .state-grant {
+            background-color: #c8e6c9 !important;
+            color: #1b5e20;
+            font-weight: bold;
+        }
+
+        .state-deny {
+            background-color: #ffcdd2 !important;
+            color: #b71c1c;
+            font-weight: bold;
+        }
+
+        select {
+            width: 100%;
+            border: none;
+            background: transparent;
+            font-size: 11px;
+            cursor: pointer;
+            padding: 2px;
+        }
+
+            select:focus {
+                outline: 1px solid #007acc;
+            }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <strong>Вход:</strong>
+        <input type="text" id="username" value="admin" style="width:90px;">
+        <input type="password" id="password" placeholder="Пароль" style="width:90px;">
+        <button onclick="login()">Войти</button>
+        |
+        <input type="text" id="user-search" placeholder="Поиск сотрудника..." style="width:180px;">
+        <button onclick="loadUserMatrix()">Найти</button>
+        <span id="status" style="color: red;"></span>
+    </div>
+
+    <table class="matrix-table" id="matrix" style="display:none;">
+        <thead>
+            <tr id="header-row">
+                <th style="width: 250px;">Разделы и Права</th>
+            </tr>
+        </thead>
+        <tbody id="body-rows"></tbody>
+    </table>
+
+    <script>let token = '';
+
+    async function login() {
+        const u = document.getElementById('username').value;
+        const p = document.getElementById('password').value;
+        const res = await fetch('/api/v1/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: u, password: p })
+        });
+        if(!res.ok) { document.getElementById('status').innerText = 'Ошибка'; return; }
+        const data = await res.json();
+        token = data.access_token;
+        document.getElementById('status').style.color = 'green';
+        document.getElementById('status').innerText = 'Авторизован';
+        loadUserMatrix();
+    }
+
+    async function loadUserMatrix() {
+        if(!token) return;
+        const search = document.getElementById('user-search').value;
+        const res = await fetch(`/api/v1/dev/matrix/users?search=${encodeURIComponent(search)}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if(res.status === 403) { alert('Только для администраторов'); return; }
+        const data = await res.json();
+
+        const header = document.getElementById('header-row');
+        const body = document.getElementById('body-rows');
+        header.innerHTML = '<th style="width: 280px;">Разделы и Права</th>';
+        body.innerHTML = '';
+
+        // Отрисовка колонок (Пользователи)
+        data.users.forEach(u => {
+            header.innerHTML += `<th title="${u.displayName}"><div style="font-weight:bold;">${u.displayName}</div><div class="text-muted">@${u.username}</div></th>`;
+        });
+
+        // Строки Меню (Sections)
+        data.sections.forEach(sec => {
+            let row = `<tr class="section-row"><td>📦 Меню: ${sec.title}<br><span class="text-muted">${sec.key}</span></td>`;
+            data.users.forEach(u => {
+                const key = `${u.id}_${sec.key}`;
+                const override = data.userSectionOverrides[key] || 0; // 0 = нет, 1 = Grant, 2 = Deny
+                const hasRoleAccess = data.roleSections.includes(`${u.roleId}_${sec.key}`);
+
+                row += `<td class="${getStyleClass(override, hasRoleAccess)}">${renderSelect(u.id, sec.key, 'section', override, hasRoleAccess)}</td>`;
+            });
+            row += '</tr>';
+            body.innerHTML += row;
+        });
+
+        // Строки Прав (Permissions)
+        data.permissions.forEach(perm => {
+            let row = `<tr><td>🔑 Право: ${perm.description}<br><span class="text-muted">${perm.key}</span></td>`;
+            data.users.forEach(u => {
+                const key = `${u.id}_${perm.key}`;
+                const override = data.userPermissionOverrides[key] || 0;
+                const hasRoleAccess = data.rolePermissions.includes(`${u.roleId}_${perm.key}`);
+
+                row += `<td class="${getStyleClass(override, hasRoleAccess)}">${renderSelect(u.id, perm.key, 'permission', override, hasRoleAccess)}</td>`;
+            });
+            row += '</tr>';
+            body.innerHTML += row;
+        });
+
+        document.getElementById('matrix').style.display = 'table';
+    }
+
+    function getStyleClass(override, hasRoleAccess) {
+        if (override === 1) return 'state-grant';
+        if (override === 2) return 'state-deny';
+        return hasRoleAccess ? 'state-default-yes' : 'state-default-no';
+    }
+
+    function getRoleBgClass(hasRoleAccess) {
+        // Если роль имеет доступ — ячейка нежно-зеленая. Если нет — стандартный белый фон.
+        return hasRoleAccess ? 'bg-role-allowed' : 'bg-role-denied';
+    }
+
+    function renderSelect(userId, key, type, override, hasRoleAccess) {
+        // Формируем понятный текст для дефолтного состояния
+        const defaultLabel = `⚪ По роли (${hasRoleAccess ? 'Разрешено' : 'Запрещено'})`;
+
+        return `
+    <select onchange="updateOverride('${userId}', '${key}', '${type}', this, ${hasRoleAccess})">
+        <option value="0" ${override === 0 ? 'selected' : ''}>${defaultLabel}</option>
+        <option value="1" ${override === 1 ? 'selected' : ''}>🟢 Явно Разрешить (Override)</option>
+        <option value="2" ${override === 2 ? 'selected' : ''}>🔴 Явно Запретить (Override)</option>
+    </select>
+`;
+    }
+
+    async function updateOverride(userId, key, type, selectElement, hasRoleAccess) {
+        const mode = parseInt(selectElement.value);
+        const td = selectElement.parentElement;
+
+        // Сбрасываем временные стили оверрайдов
+        td.style.border = 'none';
+
+        // Если админ выбрал жесткий оверрайд, подсветим рамку ячейки, чтобы было видно ручное вмешательство
+        if (mode === 1) { td.style.border = '2px solid #2e7d32'; }
+        else if (mode === 2) { td.style.border = '2px solid #c62828'; }
+
+        try {
+            const res = await fetch('/api/v1/dev/matrix/users/toggle', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ userId, key, type, effectMode: mode })
+            });
+            if (!res.ok) alert('Ошибка сохранения на сервере');
+        } catch (e) {
+            alert('Сбой сети');
+        }
+    }
+    </script>
+</body>
+</html>

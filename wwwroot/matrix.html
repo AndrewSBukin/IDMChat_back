@@ -173,7 +173,7 @@
 
     async function toggle(roleId, key, type, isChecked) {
         try {
-            await fetch('/api/matrix/toggle', { // Изменено на относительный путь согласно роуту
+            await fetch('/api/v1/matrix/toggle', { // Изменено на относительный путь согласно роуту
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
