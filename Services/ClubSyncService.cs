@@ -35,6 +35,11 @@ namespace IDMChat.Services
 
         public async Task SyncUserClubsAsync(Guid userId, List<IdmClubDto> idmClubs, CancellationToken cancellationToken)
         {
+            if (idmClubs == null)
+            {
+                return;
+            }
+
             // 1. Получаем текущие ID клубов пользователя из нашей локальной БД
             var localClubIds = await _db.UserClubs
                 .Where(uc => uc.UserId == userId)
@@ -50,45 +55,49 @@ namespace IDMChat.Services
             }
 
             // 3. Начинаем транзакцию для обеспечения целостности данных
-            using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-            try
-            {
-                // Сначала гарантируем, что сами справочники клубов актуальны в таблице Club
-                foreach (var idmClub in idmClubs)
+            var executionStrategy = _db.Database.CreateExecutionStrategy();
+            await executionStrategy.ExecuteAsync(async () =>
+            { 
+                using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+                try
                 {
-                    var exists = await _db.Clubs.AnyAsync(c => c.Id == idmClub.Id, cancellationToken);
-                    if (!exists)
+                    // Сначала гарантируем, что сами справочники клубов актуальны в таблице Club
+                    foreach (var idmClub in idmClubs)
                     {
-                        _db.Clubs.Add(new Club
+                        var exists = await _db.Clubs.AnyAsync(c => c.Id == idmClub.Id, cancellationToken);
+                        if (!exists)
                         {
-                            Id = idmClub.Id,
-                            Name = idmClub.Name,
-                            Code = idmClub.Code,
-                            Idm = idmClub.Idm,
-                            CityName = idmClub.CityName,
-                            CityGmt = idmClub.CityGmt
-                        });
+                            _db.Clubs.Add(new Club
+                            {
+                                Id = idmClub.Id,
+                                Name = idmClub.Name,
+                                Code = idmClub.Code,
+                                Idm = idmClub.Idm,
+                                CityName = idmClub.CityName,
+                                CityGmt = idmClub.CityGmt
+                            });
+                        }
                     }
+                    await _db.SaveChangesAsync(cancellationToken);
+
+                    // Пачечное удаление старых связей через EF Core 8 ExecuteDeleteAsync
+                    await _db.UserClubs
+                        .Where(uc => uc.UserId == userId)
+                        .ExecuteDeleteAsync(cancellationToken);
+
+                    // Вставка новых связей
+                    var newConnections = idmClubs.Select(c => new UserClub { UserId = userId, ClubId = c.Id });
+                    _db.UserClubs.AddRange(newConnections);
+                    await _db.SaveChangesAsync(cancellationToken);
+
+                    await transaction.CommitAsync(cancellationToken);
                 }
-                await _db.SaveChangesAsync(cancellationToken);
-
-                // Пачечное удаление старых связей через EF Core 8 ExecuteDeleteAsync
-                await _db.UserClubs
-                    .Where(uc => uc.UserId == userId)
-                    .ExecuteDeleteAsync(cancellationToken);
-
-                // Вставка новых связей
-                var newConnections = idmClubs.Select(c => new UserClub { UserId = userId, ClubId = c.Id });
-                _db.UserClubs.AddRange(newConnections);
-                await _db.SaveChangesAsync(cancellationToken);
-
-                await transaction.CommitAsync(cancellationToken);
-            }
-            catch
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                throw;
-            }
+                catch
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    throw;
+                }
+            });
 
             // 4. Инвалидируем кэш прав в памяти бэкенда
             _authContextService.InvalidateCache(userId);

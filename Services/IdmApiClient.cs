@@ -45,14 +45,14 @@ namespace IDMChat.Services
                 var response = await _http.PostAsJsonAsync("/api/userclubs", new { userId }, ct);
 
                 // Если ИДМ вернула ошибку (нет прав, пользователь не найден или сервер упал), возвращаем пустой список
-                if (!response.IsSuccessStatusCode) return new();
+                if (!response.IsSuccessStatusCode) return null;
 
-                return await response.Content.ReadFromJsonAsync<List<IdmClubDto>>(cancellationToken: ct) ?? new();
+                return await response.Content.ReadFromJsonAsync<List<IdmClubDto>>(cancellationToken: ct);
             }
             catch
             {
                 // При таймауте или сетевом сбое возвращаем пустой список (безопасный фолбэк)
-                return new();
+                return null;
             }
         }
     }
