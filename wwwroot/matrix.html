@@ -1,0 +1,189 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Админка матрица прав</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            font-size: 13px;
+            background: #f9f9f9;
+            color: #333;
+        }
+
+        .auth-panel {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: #fff;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+            .auth-panel input {
+                padding: 4px 8px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                width: 120px;
+            }
+
+            .auth-panel button {
+                padding: 4px 12px;
+                background: #007acc;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                cursor: pointer;
+            }
+
+        .matrix-table {
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            width: 100%;
+        }
+
+            .matrix-table th, .matrix-table td {
+                border: 1px solid #ddd;
+                padding: 6px 12px;
+                text-align: left;
+            }
+
+            .matrix-table th {
+                background: #f0f0f0;
+                position: sticky;
+                top: 0;
+            }
+
+            .matrix-table tr:hover {
+                background: #f5f5f5;
+            }
+
+        .section-row {
+            background: #e6f2ff;
+            font-weight: bold;
+        }
+
+        .text-muted {
+            color: #777;
+            font-size: 11px;
+            margin-left: 5px;
+        }
+
+        .center {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Панель авторизации -->
+    <div class="auth-panel">
+        <strong>Вход:</strong>
+        <input type="text" id="username" value="admin" placeholder="Логин">
+        <input type="password" id="password" placeholder="Пароль">
+        <button onclick="login()">Войти</button>
+        <span id="auth-status" style="color: red;"></span>
+    </div>
+
+    <!-- Таблица матрицы -->
+    <table class="matrix-table" id="matrix-table" style="display: none;">
+        <thead>
+            <tr id="table-header">
+                <th>Разделы и Права (Ключ)</th>
+            </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+    </table>
+
+    <script>let token = '';
+
+    async function login() {
+        const u = document.getElementById('username').value;
+        const p = document.getElementById('password').value;
+        const status = document.getElementById('auth-status');
+
+        try {
+            // Запрос к вашему существующему эндпоинту авторизации
+            const r = await fetch('/api/v1/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: u, password: p })
+            });
+
+            if(!r.ok) { status.innerText = 'Ошибка входа'; return; }
+
+            const data = await r.json();
+            token = data.access_token;
+            status.style.color = 'green';
+            status.innerText = 'Авторизован';
+
+            loadMatrix();
+        } catch (e) {
+            status.innerText = 'Ошибка сети';
+        }
+    }
+
+    async function loadMatrix() {
+        const r = await fetch('/api/v1/dev/matrix', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if(r.status === 403) { alert('Доступ разрешен только пользователю admin'); return; }
+        const data = await r.json();
+
+        const header = document.getElementById('table-header');
+        const body = document.getElementById('table-body');
+
+        // Очищаем старые данные
+        header.innerHTML = '<th>Разделы и Права (Ключ)</th>';
+        body.innerHTML = '';
+
+        // 1. Отрисовка колонок (Роли)
+        data.roles.forEach(role => {
+            header.innerHTML += `<th class="center">${role.name}</th>`;
+        });
+
+        // 2. Отрисовка строк Разделов Меню (Sections)
+        data.sections.forEach(sec => {
+            let row = `<tr class="section-row"><td>📦 Меню: ${sec.title} <span class="text-muted">(${sec.key})</span></td>`;
+            data.roles.forEach(role => {
+                const isChecked = data.activeSections.includes(`${role.id}_${sec.key}`) ? 'checked' : '';
+                row += `<td class="center"><input type="checkbox" ${isChecked} onclick="toggle('${role.id}', '${sec.key}', 'section', this.checked)"></td>`;
+            });
+            row += '</tr>';
+            body.innerHTML += row;
+        });
+
+        // 3. Отрисовка строк Атомарных Прав (Permissions)
+        data.permissions.forEach(perm => {
+            let row = `<tr><td>🔑 Право: ${perm.description} <span class="text-muted">(${perm.key})</span></td>`;
+            data.roles.forEach(role => {
+                const isChecked = data.activePermissions.includes(`${role.id}_${perm.key}`) ? 'checked' : '';
+                row += `<td class="center"><input type="checkbox" ${isChecked} onclick="toggle('${role.id}', '${perm.key}', 'permission', this.checked)"></td>`;
+            });
+            row += '</tr>';
+            body.innerHTML += row;
+        });
+
+        document.getElementById('matrix-table').style.display = 'table';
+    }
+
+    async function toggle(roleId, key, type, isChecked) {
+        try {
+            await fetch('/api/matrix/toggle', { // Изменено на относительный путь согласно роуту
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ roleId, key, type, isChecked })
+            });
+        } catch (e) {
+            alert('Не удалось сохранить изменения');
+        }
+    }</script>
+</body>
+</html>
