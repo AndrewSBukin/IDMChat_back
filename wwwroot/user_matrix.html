@@ -183,10 +183,12 @@
             let row = `<tr class="section-row"><td>📦 Меню: ${sec.title}<br><span class="text-muted">${sec.key}</span></td>`;
             data.users.forEach(u => {
                 const key = `${u.id}_${sec.key}`;
-                const override = data.userSectionOverrides[key] || 0; // 0 = нет, 1 = Grant, 2 = Deny
+                const override = data.userSectionOverrides[key] || 0;
                 const hasRoleAccess = data.roleSections.includes(`${u.roleId}_${sec.key}`);
 
-                row += `<td class="${getStyleClass(override, hasRoleAccess)}">${renderSelect(u.id, sec.key, 'section', override, hasRoleAccess)}</td>`;
+                // ИСПРАВЛЕНО: Явно вызываем getRoleBgClass для раскраски фона ячейки
+                const bgClass = getRoleBgClass(hasRoleAccess);
+                row += `<td class="${bgClass}">${renderSelect(u.id, sec.key, 'section', override, hasRoleAccess)}</td>`;
             });
             row += '</tr>';
             body.innerHTML += row;
@@ -200,7 +202,9 @@
                 const override = data.userPermissionOverrides[key] || 0;
                 const hasRoleAccess = data.rolePermissions.includes(`${u.roleId}_${perm.key}`);
 
-                row += `<td class="${getStyleClass(override, hasRoleAccess)}">${renderSelect(u.id, perm.key, 'permission', override, hasRoleAccess)}</td>`;
+                // ИСПРАВЛЕНО: Явно вызываем getRoleBgClass для раскраски фона ячейки
+                const bgClass = getRoleBgClass(hasRoleAccess);
+                row += `<td class="${bgClass}">${renderSelect(u.id, perm.key, 'permission', override, hasRoleAccess)}</td>`;
             });
             row += '</tr>';
             body.innerHTML += row;
