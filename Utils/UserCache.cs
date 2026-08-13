@@ -48,6 +48,10 @@ namespace IDMChat.Utils
         {
             return userIds.Where(IsOnline).ToList();
         }
+        public List<Guid> GetOnlineMembers()
+        {
+            return _connections.Keys.ToList();
+        }
 
 
         public void InitializeAllUsers(IEnumerable<CachedUser> users)

@@ -1,4 +1,14 @@
-﻿# PROJECT_CONTEXT.md
+﻿# 0. Системные настройки контекста
+[Crytical] [SYSTEM]
+Ты - специалист по разработке web приложений на .NET.
+Ты предлагаешь только best practices решения и подходы.
+Ты всегда предлагаешь только продуманные, оптимальные по производительности решения.
+Ты стараешься сделать код простым.
+При поступлении новой задачи не надо сразу писать код. Надо сначала обсудить возможные подходы, их плюсы и минусы.
+При решении задачи не надо сразу писать инструкцию из многих пунктов. Пиши только пару первых шагов и сколько их будет всего.
+
+
+# PROJECT_CONTEXT.md
 
 ## 1. Общее описание
 
@@ -23,6 +33,7 @@
 | **Аутентификация** | JWT | Bearer + query `access_token` для SignalR |
 | **Файлы** | FFmpeg (thumbnails) + локальное хранилище | BasePath в `appsettings.json` |
 | **Тестирование** | xUnit, NBomber (нагрузка) | Отдельные проекты (Пока нет) |
+| **Push** | Firebase Cloud Messaging (FCM) | |
 
 ---
 
@@ -66,7 +77,9 @@
 - Program.cs
 ---
 
-## 4. Ключевые сущности (модели)
+## 4. Схема базы данных (Entities & Fluent API)
+В системе реализован гибридный RBAC/ACL подход управления доступом на основе справочников, ролей-шаблонов и индивидуальных пер-юзер оверрайдов (принцип Fail-Closed).
+
 
 ### User
 - `Id (Guid)`, `DisplayName`, `AvatarUrl`, `Username`, `PasswordHash`, 
@@ -102,6 +115,114 @@
 ### MessageReadReceipt
 - `(MessageId, UserId)` — составной ключ, `ReadAt`
 
+### Настройка доступов
+```
+public enum AccessEffect { Grant = 1, Deny = 2 }
+
+// Справочник разделов меню
+public class Section
+{
+    public string Key { get; set; } = null!; // PK, напр. "office.staff", "app.chat"
+    public string Scope { get; set; } = null!; // "app" или "club"
+    public string Title { get; set; } = null!;
+    public string Icon { get; set; } = null!; // Семантический алиас иконки ("home")
+    public int Order { get; set; }
+    public string? ParentKey { get; set; }
+    public Section? Parent { get; set; }
+    public ICollection<Section> Children { get; set; } = new List<Section>();
+    public bool IsActive { get; set; } = true;
+}
+
+// Справочник атомарных прав
+public class Permission
+{
+    public string Key { get; set; } = null!; // PK, напр. "daily.expense.edit"
+    public string Description { get; set; } = null!;
+}
+
+// Таблица системных ролей
+public class Role
+{
+    public Guid Id { get; set; }
+    public string Code { get; set; } = null!; // "manager", "cashier"
+    public string Name { get; set; } = null!;
+}
+
+// Таблицы связей шаблонов ролей
+public class RoleSection { public Guid RoleId { get; set; }; public string SectionKey { get; set; } = null!; }
+public class RolePermission { public Guid RoleId { get; set; }; public string PermissionKey { get; set; } = null!; }
+
+// Профиль пользователя и настройки приземления
+public class UserProfile
+{
+    public Guid UserId { get; set; } // PK / FK на таблицу Users
+    public Guid? RoleId { get; set; }
+    public Role? Role { get; set; }
+    public string? DefaultSectionKey { get; set; } // FK на Section
+    public string? ClubLandingSectionKey { get; set; } // FK на Section
+}
+
+// Пер-юзер оверрайды доступа
+public class UserSectionOverride { public Guid UserId { get; set; }; public string SectionKey { get; set; } = null!; public AccessEffect Effect { get; set; } }
+public class UserPermissionOverride { public Guid UserId { get; set; }; public string PermissionKey { get; set; } = null!; public AccessEffect Effect { get; set; } }
+public class UserLimit { public Guid UserId { get; set; }; public string LimitKey { get; set; } = null!; public int IntValue { get; set; } }
+public class UserClub { public Guid UserId { get; set; }; public int ClubId { get; set; } }
+
+// Таблица клубов с денормализованным городом (Оптимизация под 10k+)
+public class Club
+{
+    public int Id { get; set; } // PK
+    public string Name { get; set; } = null!; // "АКС1828"
+    public string Code { get; set; } = null!; // "1828" (маппится в bbID контракта)
+    public string Company { get; set; } = null!; // idm / код компании
+    public string CityName { get; set; } = null!; // "Ростов-на-Дону"
+    public int CityGmt { get; set; } // Смещение таймзоны (напр. 3)
+}
+```
+
+### Конфигурация Fluent API (`OnModelCreating`):
+* Настроена self-referencing связь `Section.Parent` с `DeleteBehavior.Restrict`.
+* Объявлены составные первичные ключи для всех связующих таблиц и оверрайдов.
+* Созданы **неуникальные индексы** (`IX_*_UserId`) для `UserSectionOverride`, `UserPermissionOverride`, `UserLimit`, `UserClub` для мгновенной сборки контекста пользователя.
+
+### Итоговый контракт авторизации (`POST /api/auth/login`)
+Для сохранения обратной совместимости с вебом применена аддитивная стратегия миграции.
+
+```json
+{
+  "access_token": "ey...",
+  "refresh_token": "...",
+  "expires_in": 3600,
+  "user": {
+    "id": "7b0d0450-...",
+    "username": "admin",
+    "display_name": "Иван Петров",
+    "avatar_url": "https://idmbb.ru",
+    "avatar_thumb_url": "https://idmbb.ru",
+    "is_online": true,
+    "last_seen_at": "2026-08-13T00:00:00Z",
+    "role": "admin",
+    "fullName": "Иван Петров",
+    "defaultSection": { "key": "club.general", "scope": "club" },
+    "clubLandingKey": "club.daily"
+  },
+  "permissions": [
+    "daily.expense.edit", "daily.view.history", "daily.view.today", "monthly.full"
+  ],
+  "limits": { "daily.history.days": 30 },
+  "clubs": [
+    { "id": 225, "bbID": "1828", "name": "АКС1828", "city": { "name": "Ростов-на-Дону", "gmt": 3 } }
+  ],
+  "menu": [
+    { "key": "app.chat", "scope": "app", "title": "Список чатов", "icon": "chat", "order": 0, "children": [] },
+    { "key": "club.hall.management", "scope": "club", "title": "Управление клубом", "icon": "management", "order": 2,
+      "children": [
+        { "key": "club.hall.staff", "title": "Сотрудники клуба", "icon": "staff", "order": 1 }
+      ]
+    }
+  ]
+}
+```
 ---
 
 ## 5. Кэширование
@@ -116,6 +237,21 @@
 - `_connections` — `UserId → ConnectionId`
 - `_displayNames` — `UserId → DisplayName`
 - **Методы**: `IsOnline`, `GetOnlineMembers`, `GetConnectionId`
+
+### 5.1 Кэширующий сервис `AuthContextService`
+* Инкапсулирует вычисление эффективных прав, слияние шаблонов ролей и индивидуальных `Grant/Deny` оверрайдов.
+* Строит иерархическое меню строго в 1 уровень вложенности, дочерние пункты наследуют `scope` родителя.
+* Использует внутрипроцессный `IMemoryCache` со стратегией защиты RAM: `AbsoluteExpirationRelativeToNow = 24 часа`, `SlidingExpiration = 30 минут`. Сборка из БД происходит только при промахе кэша за один проход. Имя пользователя запрашивается из глобального `_userCache` без дергания СУБД.
+* Содержит метод `InvalidateCache(Guid userId)` для сброса данных при изменении прав в админке.
+
+### 5.2 Семантический шлюз ИДМ (`MenuGatewayController`) **ЕЩЕ НЕ РЕАЛИЗОВАНО!**
+* Принимает запросы с семантическим ключом экрана (напр. `GET /api/v1/menugateway/club/225/club.daily`).
+* Осуществляет двойной рубеж защиты: проверяет наличие ключа в меню пользователя и валидирует, привязан ли `clubId` к его профилю.
+* Навязывает лимиты на уровне бэкенда: при отсутствии у пользователя права `daily.view.history` шлюз жестко зажимает параметры внешнего HTTP-запроса к ИДМ текущей датой (`mode=today-only`), предотвращая взлом со стороны клиента.
+
+### 5.3 Универсальный `UrlResolver` путей файлов
+* Обладает свойством идемпотентности: если строка уже содержит `http://` или `https://`, она возвращается без изменений.
+* Полностью автономен (не требует `_basePath`): с помощью маркеров `storageFolders = new[] { "avatars/", "attachments/", "thumbnails/", "files/" }` он автоматически определяет относительный путь, отсекая абсолютную дисковую структуру серверов разработки Windows/Linux.
 
 ---
 
@@ -157,6 +293,27 @@
 | `unread_count_updated` | Обновление счётчика |
 | `user_status` | Статус пользователя (online/offline) |
 | `unread_summary` | Сводка по непрочитанным при подключении |
+
+### 6.1 Персональная сборка DTO (`BuildConversationUpdatedDto`)
+* Модифицирован для приема `Guid userId`. Все счётчики (`unread_count`) и массивы упоминаний (`unread_mention_ids`) рассчитываются **персонально** для каждого получателя.
+* Массив непрочитанных упоминаний `unread_mention_ids` собирается динамически из таблицы `MessageMentions` по условию `m.Id > cm.LastReadMessageId && !m.IsDeleted` в порядке от старых к новым (`OrderBy(m => m.Id)`).
+* Для `direct`-чатов метод автоматически подставляет в качестве `name`, `avatar_url` и `avatar_thumb_url` данные собеседника.
+* Все вызовы событий `conversation_new` и `conversation_updated` в контроллерах переведены на персональную итерацию в цикле `foreach` по участникам чата и отправку через адресный метод `Clients.Client(connectionId)` в фоновом режиме (fire-and-forget).
+
+### 6.2 Обратная совместимость ивент-модели
+* Чтобы не ломать логику фронтенда, ивент `unread_count_updated` сохранил свой прежний формат (без массивов строк).
+* Для управления кнопкой `@` внедрено **новое изолированное SignalR-событие `unread_mentions_updated`**, передающее payload вида `{ conversation_id, unread_mention_ids: ["3660", "3712"] }`. Оно триггерится при получении сообщения, удалении сообщения и вызове метода `MarkAsRead`.
+
+### 6.3 Оптимизация удаления участников чата (`RemoveMember`)
+* Исправлена уязвимость гонки условий (Race Condition): перед физическим удалением записи `ConversationMember` из базы данных, бэкенд извлекает `connectionId` удаляемого пользователя из `_userCache`. 
+* Событие `members_removed` отправляется как в общую сокет-группу чата, так и **адресно на сокет исключенного человека**, что гарантирует мгновенный сброс его UI, даже если SignalR успел выбросить его из группы на основе обновлений СУБД.
+
+### 6.4 Пакетный обработчик `FlushBatchAsync`
+* Разделен контур реалтайма и push-уведомлений. Сначала воркер собирает из батча все упоминания и пачечным SQL-запросом вычисляет актуальные `UnreadCount` и `UnreadMentionIds` для онлайн-пользователей, рассылая им SignalR уведомления. Затем переходит к формированию мобильных пушей Firebase (FCM).
+* Внедрена высоконагруженная оптимизация чистки устаревших сессий: при получении от Firebase ошибок `Unregistered` или `InvalidArgument`, строки токенов собираются в `List<string> deadTokenStrings`. По окончании обработки чанка база данных чистится **одним пачечным вызовом `db.DeviceTokens.RemoveRange`**, что спасает MSSQL от перегрузок СУБД.
+
+### 6.5 Инициализация при вступлении в чат
+* В метод добавления участников интегрировано автоматическое прочтение истории: при создании записи `ConversationMember` поле `LastReadMessageId` заполняется актуальным денормализованным значением `LastMessageId` из сущности беседы. Новый пользователь заходит в чат с `UnreadCount = 0` и чистой кнопкой `@`, без ложных уведомлений за прошлые периоды.
 
 ---
 
@@ -242,10 +399,12 @@
 ---
 
 ## 12. Актуальные задачи
+- Забирать актуальный список клубов пользователя из ИДМ каждый раз или периодически
+- Интегрировать доступ с системой ИДМ (однократно по ролям пользователей)
+- Подтянуть меню пользователей из ИДМ (однократно) 
+- запросы отчетов передавать в ИДМ и отдавать ответ клиенту чата
 - Реализовать команды
 - Добавить клавиатуру в сообщении
-- Интегрировать доступ с системой ИДМ, а также авторизацию через IDM
-- Подтянуть меню пользователей из ИДМ + запросы отчетов
 
 ---
 
@@ -257,7 +416,7 @@
 - Рассмотреть выгоду от создания кеша members
 - По коду есть похожие куски кода, но с небольшими отличиями. В частности использовать MessageDtoMapper.
 - Файлы контроллеров разрослись.
-- Когда надо обновлять LastSeenAt пользователя? Сейчас только на логине / рефреше.
 - Привести в порядок названия DTO
+- Проблема неэффективной обработки медиа (вынос синхронной генерации превью видео/файлов через FFmpeg из веб-потоков контроллера в фоновый BackgroundService)
 
-*Актуально на 16.07.2026*
+*Актуально на 12.08.2026*

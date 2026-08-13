@@ -714,4 +714,13 @@ namespace IDMChat.DTO
         public int order { get; set; }
     }
     #endregion
+
+    public record IdmClubDto(
+        int Id,
+        string Code,      // Маппится в Code (bbID)
+        string Idm,       // IDM
+        string Name,      // Название клуба
+        string CityName,  // Денормализованный город ("Ростов-на-Дону")
+        int CityGmt       // Таймзона города (напр. 3)
+    );
 }

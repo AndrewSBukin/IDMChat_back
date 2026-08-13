@@ -23,8 +23,9 @@ public class AuthController : ControllerBase
     private readonly IIdmApiClient _idmClient;
     private readonly UserCache _userCache;
     private readonly IAuthContextService _authContextService;
+    private readonly IServiceProvider _serviceProvider;
 
-    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient, IAuthContextService authContextService)
+    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient, IAuthContextService authContextService, IServiceProvider serviceProvider)
     {
         _dbContext = dbContext;
         _config = config;
@@ -32,6 +33,7 @@ public class AuthController : ControllerBase
         _idmClient = idmClient;
         _userCache = userCache;
         _authContextService = authContextService;
+        _serviceProvider = serviceProvider;
     }
 
     class IdmUser
@@ -131,6 +133,32 @@ public class AuthController : ControllerBase
 
         var authContext = await _authContextService.GetContextAsync(localUser.Id, ct);
 
+        if (localUser.IdmUserId.HasValue)
+        {
+            if (authContext.clubs != null && authContext.clubs.Count > 0)
+            {
+                // Используем Task.Run для Fire-and-Forget
+                _ = Task.Run(async () =>
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var idmClient = scope.ServiceProvider.GetRequiredService<IIdmApiClient>();
+                    var clubSyncService = scope.ServiceProvider.GetRequiredService<IClubSyncService>();
+
+                    var idmClubs = await idmClient.GetUserClubsAsync(localUser.IdmUserId.Value, CancellationToken.None);
+                    await clubSyncService.SyncUserClubsAsync(localUser.Id, idmClubs, CancellationToken.None);
+                });
+            }
+            else
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var idmClient = scope.ServiceProvider.GetRequiredService<IIdmApiClient>();
+                var clubSyncService = scope.ServiceProvider.GetRequiredService<IClubSyncService>();
+
+                var idmClubs = await idmClient.GetUserClubsAsync(localUser.IdmUserId.Value, CancellationToken.None);
+                await clubSyncService.SyncUserClubsAsync(localUser.Id, idmClubs, CancellationToken.None);
+            }
+        }
+
         // Генерируем токены
         var userDto = new UserDto
         {
@@ -175,18 +203,26 @@ public class AuthController : ControllerBase
 
             permissions = authContext.permissions,
             limits = authContext.limits,
-            clubs = authContext.clubs.Select(c => new ClubDto
-            {
-                id = c.id,
-                bbID = c.bbid,
-                name = c.name,
-                city = new CityDto
-                {
-                    name = c.city.name,
-                    gmt = c.city.gmt
-                }
-            }).ToList(),
+            clubs = authContext.clubs.Select(ClubMapper.ToFrontendDto).ToList(),
         });
+    }
+
+    public static class ClubMapper
+    {
+        public static ClubDto ToFrontendDto(IdmClubDto idmClub) => new ClubDto
+        {
+            id = idmClub.Id,
+            bbID = idmClub.Code, // p.bbID из ИДМ
+            name = idmClub.Name,
+            city = new CityDto { name = idmClub.CityName, gmt = idmClub.CityGmt }
+        };
+        public static ClubDto ToFrontendDto(ThinClubDto idmClub) => new ClubDto
+        {
+            id = idmClub.id,
+            bbID = idmClub.bbid, // p.bbID из ИДМ
+            name = idmClub.name,
+            city = new CityDto { name = idmClub.city.name, gmt = idmClub.city.gmt }
+        };
     }
 
     private UserRole MapIdmRoleToChatRole(string idmRole)

@@ -4,6 +4,7 @@ namespace IDMChat.Services
 {
     public interface IIdmApiClient
     {
+        Task<List<IdmClubDto>> GetUserClubsAsync(int userId, CancellationToken ct);
         Task<IdmAuthResultDto?> VerifyCredentialsAsync(string username, string password, CancellationToken ct = default);
 
     }
@@ -36,5 +37,23 @@ namespace IDMChat.Services
             }
         }
 
+        public async Task<List<IdmClubDto>> GetUserClubsAsync(int userId, CancellationToken ct = default)
+        {
+            try
+            {
+                // Отправляем точечный POST-запрос с ID пользователя в теле, согласно стилю ИДМ
+                var response = await _http.PostAsJsonAsync("/api/userclubs", new { userId }, ct);
+
+                // Если ИДМ вернула ошибку (нет прав, пользователь не найден или сервер упал), возвращаем пустой список
+                if (!response.IsSuccessStatusCode) return new();
+
+                return await response.Content.ReadFromJsonAsync<List<IdmClubDto>>(cancellationToken: ct) ?? new();
+            }
+            catch
+            {
+                // При таймауте или сетевом сбое возвращаем пустой список (безопасный фолбэк)
+                return new();
+            }
+        }
     }
 }

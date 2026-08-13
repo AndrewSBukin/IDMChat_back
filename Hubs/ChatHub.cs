@@ -28,8 +28,9 @@ namespace IDMChat.Hubs
         private readonly IChatPathUrlResolver _urlResolver;
         private readonly IBackgroundPushQueue _backgroundPushQueue;
         private readonly INewMessageService _newMessageService;
+        private readonly IServiceProvider _serviceProvider;
 
-        public ChatHub(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundPushQueue backgroundPushQueue, INewMessageService newMessageService)
+        public ChatHub(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundPushQueue backgroundPushQueue, INewMessageService newMessageService, IServiceProvider serviceProvider)
         {
             _db = dbContext;
             _chatCache = chatCache;
@@ -38,6 +39,7 @@ namespace IDMChat.Hubs
             _urlResolver = urlResolver;
             _backgroundPushQueue = backgroundPushQueue;
             _newMessageService = newMessageService;
+            _serviceProvider = serviceProvider;
         }
 
         public override async Task OnConnectedAsync()
@@ -82,16 +84,32 @@ namespace IDMChat.Hubs
                 .Select(cm => new { cm.ConversationId, cm.UnreadCount })
                 .ToListAsync();
 
-            //foreach (var chat in userChats)
-            //{
-            //    await Groups.AddToGroupAsync(Context.ConnectionId, chat.ConversationId.ToString());
-            //}
-
             // 2. Отправляем ТОЛЬКО счётчики непрочитанных
             var unreadSummary = userChats.ToDictionary(c => c.ConversationId, c => c.UnreadCount);
 
             await Clients.Caller.SendAsync("unread_summary", unreadSummary);
 
+            // 3. Запускаем фоновую проверку клубов
+            _ = Task.Run(async () =>
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
+
+                // Вычитываем внешний ключ idm из базы
+                var userIdm = await dbContext.Users
+                    .Where(u => u.Id == userId)
+                    .Select(u => u.IdmUserId)
+                    .FirstOrDefaultAsync();
+
+                if (userIdm.HasValue)
+                {
+                    var idmClient = scope.ServiceProvider.GetRequiredService<IIdmApiClient>();
+                    var clubSyncService = scope.ServiceProvider.GetRequiredService<IClubSyncService>();
+
+                    var idmClubs = await idmClient.GetUserClubsAsync(userIdm.Value, CancellationToken.None);
+                    await clubSyncService.SyncUserClubsAsync(userId, idmClubs, CancellationToken.None);
+                }
+            });
 
             await base.OnConnectedAsync();
         }
