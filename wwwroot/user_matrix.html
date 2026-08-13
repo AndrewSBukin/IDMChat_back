@@ -94,17 +94,28 @@
             font-weight: bold;
         }
 
+
+        .bg-role-allowed {
+            background-color: #e8f5e9 !important;
+        }
+
+        /* Стандартный белый/серый для ячеек, чьи роли не имеют доступа */
+        .bg-role-denied {
+            background-color: #ffffff;
+        }
+
         select {
             width: 100%;
-            border: none;
-            background: transparent;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.8);
             font-size: 11px;
             cursor: pointer;
-            padding: 2px;
+            padding: 3px;
         }
 
             select:focus {
-                outline: 1px solid #007acc;
+                outline: 2px solid #007acc;
             }
     </style>
 </head>
