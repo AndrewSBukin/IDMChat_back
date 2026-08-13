@@ -178,6 +178,13 @@
             header.innerHTML += `<th title="${u.displayName}"><div style="font-weight:bold;">${u.displayName}</div><div class="text-muted">@${u.username}</div></th>`;
         });
 
+        let roleRow = `<tr style="background: #fff3e0; font-weight: bold;"><td>⚙️ Системная Роль</td>`;
+        data.users.forEach(u => {
+            roleRow += `<td>${renderRoleSelect(u.id, u.roleId, data.roles)}</td>`;
+        });
+        roleRow += '</tr>';
+        body.innerHTML += roleRow;
+
         // Строки Меню (Sections)
         data.sections.forEach(sec => {
             let row = `<tr class="section-row"><td>📦 Меню: ${sec.title}<br><span class="text-muted">${sec.key}</span></td>`;
@@ -211,6 +218,42 @@
         });
 
         document.getElementById('matrix').style.display = 'table';
+    }
+
+    function renderRoleSelect(userId, currentRoleId, allRoles) {
+        let options = `<option value="" ${!currentRoleId ? 'selected' : ''}>❌ Без роли</option>`;
+
+        allRoles.forEach(r => {
+            options += `<option value="${r.id}" ${r.id === currentRoleId ? 'selected' : ''}>👑 ${r.name}</option>`;
+        });
+
+        return `<select onchange="updateUserRole('${userId}', this)" style="background: #fff; font-weight: normal; border: 1px solid #ffb74d;">${options}</select>`;
+    }
+
+    // Функция отправляет команду смены роли на бэкенд
+    async function updateUserRole(userId, selectElement) {
+        const roleId = selectElement.value ? selectElement.value : null;
+
+        try {
+            const res = await fetch('/api/v1/dev/matrix/users/change-role', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ userId, roleId })
+            });
+
+            if (res.ok) {
+                // Перезагружаем матрицу: это мгновенно пересчитает все цвета (bg-role-allowed/denied) 
+                // для этого пользователя на основе его новой роли!
+                await loadUserMatrix();
+            } else {
+                alert('Ошибка изменения роли на сервере');
+            }
+        } catch (e) {
+            alert('Сбой сети при изменении роли');
+        }
     }
 
     function getStyleClass(override, hasRoleAccess) {

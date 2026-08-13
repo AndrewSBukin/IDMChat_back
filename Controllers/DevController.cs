@@ -275,5 +275,37 @@ namespace IDMChat.Controllers
             return currentUser?.IdmRole == "administrator";
         }
 
+        public record ChangeUserRoleCommand(Guid UserId, Guid? RoleId);
+
+        [HttpPost("matrix/users/change-role")]
+        public async Task<IActionResult> ChangeUserRole([FromBody] ChangeUserRoleCommand cmd)
+        {
+            if (!await IsSuperAdmin()) return Forbid();
+
+            // Находим существующий профиль или создаем новый, если это первый вход
+            var profile = await _db.Set<UserProfile>().FirstOrDefaultAsync(p => p.UserId == cmd.UserId);
+
+            if (profile != null)
+            {
+                profile.RoleId = cmd.RoleId; // Назначаем новую роль (или null)
+            }
+            else
+            {
+                _db.Set<UserProfile>().Add(new UserProfile
+                {
+                    UserId = cmd.UserId,
+                    RoleId = cmd.RoleId,
+                    DefaultSectionKey = "app.chat" // Дефолтный приземляющий экран
+                });
+            }
+
+            await _db.SaveChangesAsync();
+
+            // Критично: сбрасываем кэш прав в памяти, чтобы новые права роли вступили в силу мгновенно!
+            _authContextService.InvalidateCache(cmd.UserId);
+
+            return Ok(new { success = true });
+        }
+
     }
 }
