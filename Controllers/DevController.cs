@@ -180,6 +180,8 @@ namespace IDMChat.Controllers
             var users = await query.OrderBy(u => u.DisplayName).Take(30).ToListAsync();
             var userIds = users.Select(u => u.Id).ToList();
 
+            var allSystemRoles = await _db.Set<Role>().OrderBy(r => r.Name).ToListAsync();
+
             // 2. Вычитываем роли этих пользователей (для расчета базового доступа)
             var userProfiles = await _db.Set<UserProfile>()
                 .Where(up => userIds.Contains(up.UserId))
@@ -202,6 +204,8 @@ namespace IDMChat.Controllers
 
             return Ok(new
             {
+                roles = allSystemRoles.Select(r => new { r.Id, r.Name }),
+
                 users = users.Select(u => new {
                     u.Id,
                     u.DisplayName,
