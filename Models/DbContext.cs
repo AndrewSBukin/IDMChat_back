@@ -98,6 +98,14 @@ namespace IDMChat.Models
                 .HasIndex(uc => uc.UserId)
                 .HasDatabaseName("IX_UserClubs_UserId");
 
+            modelBuilder.Entity<Club>(entity =>
+            {
+                entity.HasKey(c => c.Id);
+
+                // ЖЕСТКОЕ ОТКЛЮЧЕНИЕ АВТОИНКРЕМЕНТА:
+                entity.Property(c => c.Id)
+                      .ValueGeneratedNever();
+            });
         }
     }
 }
