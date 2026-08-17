@@ -200,10 +200,27 @@ public class AuthController : ControllerBase
             refresh_token = refreshToken,
             expires_in = expiresIn,
             user = userDto,
-
             permissions = authContext.permissions,
             limits = authContext.limits,
             clubs = authContext.clubs.Select(ClubMapper.ToFrontendDto).ToList(),
+
+            menu = authContext.menu.Select(m => new MenuDto
+            {
+                key = m.key,
+                scope = m.scope,
+                title = m.title,
+                icon = m.icon,
+                order = m.order,
+                children = m.children.Select(c => new MenuDto
+                {
+                    key = c.key,
+                    scope = m.scope, // ⚠️ Дочерние листья наследуют scope родителя по ТЗ
+                    title = c.title,
+                    icon = c.icon,
+                    order = c.order,
+                    children = new List<MenuDto>() // Глубже 1 уровня клиент дерево не строит
+                }).ToList()
+            }).ToList()
         });
     }
 
