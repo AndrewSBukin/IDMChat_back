@@ -43,6 +43,7 @@ namespace IDMChat.Controllers
         private readonly IHubContext<ChatHub> _hubContext;
         private readonly IChatPathUrlResolver _urlResolver;
         private readonly INewMessageService _newMessageService;
+        private readonly IServiceProvider _serviceProvider;
         private readonly string _storageBasePath;
 
         public ConversationsController(
@@ -52,7 +53,7 @@ namespace IDMChat.Controllers
             IHubContext<ChatHub> hubContext, 
             IConfiguration configuration,
             IChatPathUrlResolver urlResolver, 
-            INewMessageService newMessageService)
+            INewMessageService newMessageService, IServiceProvider serviceProvider)
         {
             _db = dbContext;
             _logger = logger;
@@ -62,6 +63,7 @@ namespace IDMChat.Controllers
             _storageBasePath = configuration["Storage:BasePath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
             _urlResolver = urlResolver;
             _newMessageService = newMessageService;
+            _serviceProvider = serviceProvider;
         }
 
         #region Conversations
@@ -2085,13 +2087,37 @@ namespace IDMChat.Controllers
                     // 7. Сохраняем факты прочтения (опционально, если нужна история)
                     if (newlyReadMessages.Any())
                     {
-                        var receipts = newlyReadMessages.Select(m => new MessageReadReceipt
+                        _ = Task.Run(async () =>
                         {
-                            MessageId = m.Id,
-                            UserId = userId,
-                            ReadAt = DateTime.UtcNow
-                        });
-                        _db.MessageReadReceipts.AddRange(receipts);
+                            try
+                            {
+                                // Открываем изолированный scope, так как основной HTTP-контекст _db скоро закроется
+                                using var scope = _serviceProvider.CreateScope();
+                                var backgroundDb = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
+
+                                var receipts = newlyReadMessages.Select(m => new MessageReadReceipt
+                                {
+                                    MessageId = m.Id,
+                                    UserId = userId,
+                                    ReadAt = DateTime.UtcNow
+                                }).ToList();
+
+                                backgroundDb.MessageReadReceipts.AddRange(receipts);
+                                await backgroundDb.SaveChangesAsync(); // Спокойно пишется в фоне СУБД
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Ошибка фонового сохранения MessageReadReceipts для пользователя {UserId}", userId);
+                            }
+                        }, CancellationToken.None);
+
+                        //var receipts = newlyReadMessages.Select(m => new MessageReadReceipt
+                        //{
+                        //    MessageId = m.Id,
+                        //    UserId = userId,
+                        //    ReadAt = DateTime.UtcNow
+                        //});
+                        //_db.MessageReadReceipts.AddRange(receipts);
                     }
 
                     // 8. Пересчитываем UnreadCount
