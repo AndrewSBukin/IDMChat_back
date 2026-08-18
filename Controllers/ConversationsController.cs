@@ -2060,7 +2060,7 @@ namespace IDMChat.Controllers
                     // 9. Обновляем кэш
                     _chatCache.ResetUnreadCount(id, userId);
 
-                    await SendUnreadCountUpdateAsync(id, userId);
+                    await SendUnreadCountUpdateAsync(id, userId, unreadCount);
 
                     return StatusCode(204, new
                     {
@@ -2107,9 +2107,9 @@ namespace IDMChat.Controllers
                     if (cachedChat != null)
                     {
                         // Синхронизируем in-memory кэш с базой данных
-                        cachedChat.UpdateReadStatus(userId, upToMessageId.Value, unreadCount: 0);
+                        cachedChat.UpdateReadStatus(userId, upToMessageId.Value, unreadCount: unreadCount);
                     }
-                    _chatCache.ResetUnreadCount(id, userId);
+                    //_chatCache.ResetUnreadCount(id, userId);
 
                     // 10. Уведомляем отправителей о прочтении
                     await _hubContext.Clients
@@ -2122,16 +2122,16 @@ namespace IDMChat.Controllers
                             read_at = DateTime.UtcNow
                         }, ct);
 
-                    await _hubContext.Clients
-                        .User(userId.ToString())
-                        .SendAsync("unread_count_updated", new UnreadCountUpdatedPayload
-                        {
-                            conversation_id = id,
-                            unread_count = unreadCount, // Инициализировано на Шаге 8 вашего метода
-                            last_read_message_id = upToMessageId
-                        }, ct);
+                    //await _hubContext.Clients
+                    //    .User(userId.ToString())
+                    //    .SendAsync("unread_count_updated", new UnreadCountUpdatedPayload
+                    //    {
+                    //        conversation_id = id,
+                    //        unread_count = unreadCount, // Инициализировано на Шаге 8 вашего метода
+                    //        last_read_message_id = upToMessageId
+                    //    }, ct);
 
-                    await SendUnreadCountUpdateAsync(id, userId);
+                    await SendUnreadCountUpdateAsync(id, userId, unreadCount);
 
                     return StatusCode( 204, new UnreadCountDto(unreadCount) );
                 }
@@ -3420,10 +3420,10 @@ namespace IDMChat.Controllers
         }
 
         // Метод-помощник для отправки обновления счетчиков в SignalR
-        private async Task SendUnreadCountUpdateAsync(Guid conversationId, Guid userId)
+        private async Task SendUnreadCountUpdateAsync(Guid conversationId, Guid userId, int? testval = null)
         {
             // 1. Читаем текущее состояние из базы/кэша
-            var memberInfo = await _db.ConversationMembers
+            var memberInfo = await _db.ConversationMembers.AsNoTracking()
                 .Where(cm => cm.ConversationId == conversationId && cm.UserId == userId)
                 .Select(cm => new
                 {
@@ -3442,6 +3442,11 @@ namespace IDMChat.Controllers
 
             if (memberInfo == null) return;
 
+            if (testval.HasValue)
+            {
+                if (testval.Value != memberInfo.UnreadCount)
+                    _logger.LogError($"SendUnreadCountUpdateAsync UnreadCount from DB {memberInfo.UnreadCount} but test value is {testval.Value}. user {userId}, conversation {conversationId}, last message read {memberInfo.LastReadMessageId}");
+            }
             // 2. Формируем payload по вашему ТЗ
             var payload = new UnreadCountUpdatedPayload
             {
