@@ -444,10 +444,7 @@ namespace IDMChat.Controllers
             var user = _userCache.GetUser(userId);
             return (user.DisplayName, _urlResolver.ResolveUrl(user.AvatarUrl));
         }
-        async Task<ConversationUpdatedDto> BuildConversationUpdatedDto(
-    Conversation conversation,
-    Guid userId,
-    CancellationToken ct = default)
+        async Task<ConversationUpdatedDto> BuildConversationUpdatedDto(Conversation conversation, Guid userId, CancellationToken ct = default)
         {
             // 1. Извлекаем данные участника. Если записи в БД еще нет, подставим дефолтные нули
             var memberData = await _db.ConversationMembers
@@ -848,20 +845,6 @@ namespace IDMChat.Controllers
             if (!newMemberIds.Any())
                 return Ok(new { added = 0, items = new List<MemberResponse>(), message = "Нет новых участников для добавления" });
 
-            long? lastMessageId = await _db.Conversations
-                .Where(c => c.Id == id)
-                .Select(c => c.LastMessageId)
-                .FirstOrDefaultAsync(ct);
-
-            if (lastMessageId == null)
-            {
-                lastMessageId = await _db.Messages
-                    .Where(m => m.ConversationId == id && !m.IsDeleted)
-                    .OrderByDescending(m => m.Id)
-                    .Select(m => (long?)m.Id)
-                    .FirstOrDefaultAsync(ct);
-            }
-
             // 6. Проверка компании (если не админ)
             var currentUser = await _db.Users.FindAsync(new object[] { userId }, ct);
             if (currentUser.Role != UserRole.Admin)
@@ -875,6 +858,21 @@ namespace IDMChat.Controllers
                 if (companyCodes.Count > 1 || (companyCodes.Count == 1 && companyCodes[0] != currentUser.idm))
                     return Forbid();
             }
+
+            // Системное сообщение о добавлении
+            var addedNames = await _db.Users
+                .Where(u => newMemberIds.Contains(u.Id))
+                .Select(u => u.DisplayName)
+                .ToListAsync(ct);
+
+            await _newMessageService.HandleSendSystemMessage(id, $"{currentUser.DisplayName} добавил(а): {string.Join(", ", addedNames)}", ct);
+
+            // Вытягиваем ID этого ЖЕЛЕЗНО ПОСЛЕДНЕГО системного сообщения, которое только что создалось
+            long lastMessageId = await _db.Messages
+                .Where(m => m.ConversationId == id && !m.IsDeleted)
+                .OrderByDescending(m => m.Id)
+                .Select(m => m.Id)
+                .FirstOrDefaultAsync(ct);
 
             // 7. Создаём записи участников
             var newMembers = newMemberIds.Select(memberId => new ConversationMember
@@ -893,15 +891,7 @@ namespace IDMChat.Controllers
 
             await _db.SaveChangesAsync(ct);
 
-            // Системное сообщение о добавлении
-            var currentUserDisplayName = currentUser.DisplayName;
-            var addedNames = await _db.Users
-                .Where(u => newMemberIds.Contains(u.Id))
-                .Select(u => u.DisplayName)
-                .ToListAsync(ct);
-
-            await _newMessageService.HandleSendSystemMessage(id, $"{currentUser.DisplayName} добавил(а): {string.Join(", ", addedNames)}", ct);
-
+            await _db.Entry(conversation).ReloadAsync(ct);
 
             var resultList = new List<MemberResponse>();
             foreach (var m in newMembers)
@@ -920,9 +910,6 @@ namespace IDMChat.Controllers
                     joined_at = m.JoinedAt
                 };
                 resultList.Add(memberDto);
-
-                // SignalR по ТЗ: рассылается событие MemberAdded (Пункт 12.5)
-                //await _hubContext.Clients.Group(id.ToString()).SendAsync("members_added", new { conversationId = id, member = memberDto });
             }
 
             // --- ОБНОВЛЕННЫЙ БЛОК УВЕДОМЛЕНИЙ ПРИ ДОБАВЛЕНИИ УЧАСТНИКОВ К ЧАТУ ---
@@ -940,7 +927,6 @@ namespace IDMChat.Controllers
                 if (!string.IsNullOrEmpty(connectionId))
                 {
                     // 3. Отправляем событие в сокет конкретному человеку.
-                    // Используем fire-and-forget (без await в цикле), чтобы не тормозить HTTP-поток метода API
                     _ = _hubContext.Clients.Client(connectionId).SendAsync("conversation_new", dtoForNewMember, ct);
                 }
             }
@@ -2110,14 +2096,6 @@ namespace IDMChat.Controllers
                                 _logger.LogError(ex, "Ошибка фонового сохранения MessageReadReceipts для пользователя {UserId}", userId);
                             }
                         }, CancellationToken.None);
-
-                        //var receipts = newlyReadMessages.Select(m => new MessageReadReceipt
-                        //{
-                        //    MessageId = m.Id,
-                        //    UserId = userId,
-                        //    ReadAt = DateTime.UtcNow
-                        //});
-                        //_db.MessageReadReceipts.AddRange(receipts);
                     }
 
                     // 8. Пересчитываем UnreadCount
@@ -2147,15 +2125,6 @@ namespace IDMChat.Controllers
                             user_id = userId,
                             read_at = DateTime.UtcNow
                         }, ct);
-
-                    //await _hubContext.Clients
-                    //    .User(userId.ToString())
-                    //    .SendAsync("unread_count_updated", new UnreadCountUpdatedPayload
-                    //    {
-                    //        conversation_id = id,
-                    //        unread_count = unreadCount, // Инициализировано на Шаге 8 вашего метода
-                    //        last_read_message_id = upToMessageId
-                    //    }, ct);
 
                     await SendUnreadCountUpdateAsync(id, userId, unreadCount);
 
@@ -3488,14 +3457,14 @@ namespace IDMChat.Controllers
             {
                 // Отправляем событие в SignalR конкретному пользователю
                 await _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", payload);
-            }
 
-            var mentionsPayload = new UnreadMentionsUpdatedPayload
-            {
-                conversation_id = conversationId,
-                unread_mention_ids = memberInfo.UnreadMentionIds
-            };
-            await _hubContext.Clients.Client(connectionId).SendAsync("unread_mentions_updated", mentionsPayload);
+                var mentionsPayload = new UnreadMentionsUpdatedPayload
+                {
+                    conversation_id = conversationId,
+                    unread_mention_ids = memberInfo.UnreadMentionIds
+                };
+                await _hubContext.Clients.Client(connectionId).SendAsync("unread_mentions_updated", mentionsPayload);
+            }
 
         }
 

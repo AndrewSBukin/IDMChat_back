@@ -273,7 +273,7 @@ namespace IDMChat.DTO
         public Guid conversation_id { get; set; }
         public int unread_count { get; set; }
         public long? last_read_message_id { get; set; }
-        public List<string> unread_mention_ids { get; set; } = new();
+        //public List<string> unread_mention_ids { get; set; } = new();
     }
 
     public class MemberResponse

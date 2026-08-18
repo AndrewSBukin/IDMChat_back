@@ -5,6 +5,7 @@ using IDMChat.Models;
 using IDMChat.Utils;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using static IDMChat.Controllers.FilesController;
 using static IDMChat.Hubs.ChatHub;
 
@@ -244,7 +245,12 @@ namespace IDMChat.Services
                         file_size = f.FileSize,
                         mime_type = f.MimeType,
                         url = _urlResolver.ResolveUrl(f.StoragePath),
-                        thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath)
+                        thumbnail_url = _urlResolver.ResolveUrl(f.ThumbnailPath),
+                        duration = f.Duration,
+                        type = f.Type,
+                        waveform = !string.IsNullOrEmpty(f.WaveformJson)
+                            ? JsonSerializer.Deserialize<List<double>>(f.WaveformJson)
+                            : null
                     })
                     .ToList();
                     await _db.SaveChangesAsync(ct);
