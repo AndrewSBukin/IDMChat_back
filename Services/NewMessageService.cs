@@ -387,7 +387,7 @@ namespace IDMChat.Services
                     var newUnreadCount = chat.GetUnreadCount(memberId);
                     var lastReadMsgId = chat.GetLastReadMessageId(memberId);
                     await _hubContext.Clients.User(memberId.ToString()).SendAsync("unread_count_updated", new UnreadCountUpdatedPayload { conversation_id = msg.conversation_id, unread_count = newUnreadCount, last_read_message_id = lastReadMsgId }, ct);
-                    _logger.LogDebug($"unread_count_updated 1 sent to conversation {msg.conversation_id} for user {memberId.ToString()} newUnreadCount: {newUnreadCount}");
+                    _logger.LogDebug($"my-debug unread_count_updated 1 sent to conversation {msg.conversation_id} for user {memberId.ToString()} newUnreadCount: {newUnreadCount}");
                 }
 
                 if (!isBotOrSystem(userId) && onlineMembers.Any())
@@ -397,7 +397,7 @@ namespace IDMChat.Services
                         user_ids = onlineMembers  // список Guid
                     });
 
-                _logger.LogDebug("Message {MessageId} sent to conversation {ConversationId} by {UserId}", message.Id, msg.conversation_id, userId);
+                _logger.LogDebug("my-debug Message {MessageId} sent to conversation {ConversationId} by {UserId}", message.Id, msg.conversation_id, userId);
 
                 // PUSH
                 // Вытаскиваем ID тех, кого реально упомянули (мы собирали их в блоке Mentions)

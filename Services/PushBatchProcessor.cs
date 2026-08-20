@@ -131,7 +131,7 @@ namespace IDMChat.Services
 
             var batchToSend = _batch.ToList();
             _batch.Clear();
-            _logger.LogDebug($"FlushBatchAsync batchToSend: {batchToSend.Count}");
+            _logger.LogDebug($"my-debug FlushBatchAsync batchToSend: {batchToSend.Count}");
             try
             {
                 using var scope = _serviceProvider.CreateScope();
@@ -141,7 +141,7 @@ namespace IDMChat.Services
                 var mentionTasks = batchToSend
                     .Where(t => t.TargetUserIds != null && t.TargetUserIds.Any())
                     .ToList();
-                _logger.LogDebug($"mentionTasks: {mentionTasks.Count}");
+                _logger.LogDebug($"my-debug mentionTasks: {mentionTasks.Count}");
                 if (mentionTasks.Any())
                 {
                     // Группируем по парам ChatId + UserId, чтобы не делать дублирующие запросы
@@ -174,7 +174,7 @@ namespace IDMChat.Services
                             })
                         .ToListAsync(ct);
 
-                        _logger.LogDebug($"membersData: {membersData.Count}");
+                        _logger.LogDebug($"my-debug membersData: {membersData.Count}");
                         // Рассылаем SignalR ивенты персонально каждому упомянутому сотруднику
                         foreach (var memberInfo in membersData)
                         {
@@ -182,7 +182,7 @@ namespace IDMChat.Services
 
                             if (!string.IsNullOrEmpty(connectionId))
                             {
-                                _logger.LogDebug($"unread_count_updated 2 sent to conversation {conversationId} for user {memberInfo.UserId.ToString()} newUnreadCount: {memberInfo.UnreadCount}");
+                                _logger.LogDebug($"my-debug unread_count_updated 2 sent to conversation {conversationId} for user {memberInfo.UserId.ToString()} newUnreadCount: {memberInfo.UnreadCount}");
                                 
                                 // 1. unread_count_updated (без упоминаний)
                                 _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", new
