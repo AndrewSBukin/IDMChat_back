@@ -71,7 +71,7 @@ namespace IDMChat.Services
                             {
                                 Id = idmClub.Id,
                                 Name = idmClub.Name,
-                                Code = idmClub.Code,
+                                Code = idmClub.Code ?? "",
                                 Idm = idmClub.Idm,
                                 CityName = idmClub.CityName,
                                 CityGmt = idmClub.CityGmt

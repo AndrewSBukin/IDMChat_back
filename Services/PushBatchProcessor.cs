@@ -186,6 +186,7 @@ namespace IDMChat.Services
                                     unread_count = memberInfo.UnreadCount,
                                     last_read_message_id = memberInfo.LastReadMessageId?.ToString()
                                 }, ct);
+                                _logger.LogDebug($"unread_count_updated 2 sent to conversation {conversationId} for user {memberInfo.UserId.ToString()} newUnreadCount: {memberInfo.UnreadCount}");
 
                                 // 2. отправляем только список ID упоминаний
                                 var mentionsPayload = new UnreadMentionsUpdatedPayload
