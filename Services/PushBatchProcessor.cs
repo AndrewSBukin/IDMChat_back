@@ -182,15 +182,14 @@ namespace IDMChat.Services
 
                             if (!string.IsNullOrEmpty(connectionId))
                             {
-                                _logger.LogDebug($"my-debug unread_count_updated 2 sent to conversation {conversationId} for user {memberInfo.UserId.ToString()} newUnreadCount: {memberInfo.UnreadCount}");
                                 
-                                // 1. unread_count_updated (без упоминаний)
-                                _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", new
-                                {
-                                    conversation_id = conversationId,
-                                    unread_count = memberInfo.UnreadCount,
-                                    last_read_message_id = memberInfo.LastReadMessageId?.ToString()
-                                }, ct);
+                                //// 1. unread_count_updated (без упоминаний)
+                                //_ = _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", new
+                                //{
+                                //    conversation_id = conversationId,
+                                //    unread_count = memberInfo.UnreadCount,
+                                //    last_read_message_id = memberInfo.LastReadMessageId?.ToString()
+                                //}, ct);
 
                                 // 2. отправляем только список ID упоминаний
                                 var mentionsPayload = new UnreadMentionsUpdatedPayload
@@ -199,6 +198,7 @@ namespace IDMChat.Services
                                     unread_mention_ids = memberInfo.UnreadMentionIds
                                 };
                                 _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_mentions_updated", mentionsPayload, ct);
+                                _logger.LogDebug($"my-debug unread_mentions_updated sent to conversation {conversationId} for user {memberInfo.UserId.ToString()} unread_mention_ids: {string.Join(',',mentionsPayload.unread_mention_ids)}");
                             }
                         }
                     }
