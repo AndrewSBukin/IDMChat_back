@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Message = FirebaseAdmin.Messaging.Message;
@@ -130,7 +131,7 @@ namespace IDMChat.Services
 
             var batchToSend = _batch.ToList();
             _batch.Clear();
-
+            _logger.LogDebug($"FlushBatchAsync batchToSend: {batchToSend.Count}");
             try
             {
                 using var scope = _serviceProvider.CreateScope();
@@ -140,6 +141,7 @@ namespace IDMChat.Services
                 var mentionTasks = batchToSend
                     .Where(t => t.TargetUserIds != null && t.TargetUserIds.Any())
                     .ToList();
+                _logger.LogDebug($"mentionTasks: {mentionTasks.Count}");
                 if (mentionTasks.Any())
                 {
                     // Группируем по парам ChatId + UserId, чтобы не делать дублирующие запросы
@@ -172,6 +174,7 @@ namespace IDMChat.Services
                             })
                         .ToListAsync(ct);
 
+                        _logger.LogDebug($"membersData: {membersData.Count}");
                         // Рассылаем SignalR ивенты персонально каждому упомянутому сотруднику
                         foreach (var memberInfo in membersData)
                         {
@@ -179,6 +182,8 @@ namespace IDMChat.Services
 
                             if (!string.IsNullOrEmpty(connectionId))
                             {
+                                _logger.LogDebug($"unread_count_updated 2 sent to conversation {conversationId} for user {memberInfo.UserId.ToString()} newUnreadCount: {memberInfo.UnreadCount}");
+                                
                                 // 1. unread_count_updated (без упоминаний)
                                 _ = _hubContext.Clients.Client(connectionId).SendAsync("unread_count_updated", new
                                 {
@@ -186,7 +191,6 @@ namespace IDMChat.Services
                                     unread_count = memberInfo.UnreadCount,
                                     last_read_message_id = memberInfo.LastReadMessageId?.ToString()
                                 }, ct);
-                                _logger.LogDebug($"unread_count_updated 2 sent to conversation {conversationId} for user {memberInfo.UserId.ToString()} newUnreadCount: {memberInfo.UnreadCount}");
 
                                 // 2. отправляем только список ID упоминаний
                                 var mentionsPayload = new UnreadMentionsUpdatedPayload
