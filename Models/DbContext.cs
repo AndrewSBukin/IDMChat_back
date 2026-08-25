@@ -9,31 +9,33 @@ namespace IDMChat.Models
         {
         }
 
-        public DbSet<Message> Messages { get; set; }
-        public DbSet<User> Users { get; set; }
-        public DbSet<RefreshToken> RefreshTokens { get; set; }
-        public DbSet<Conversation> Conversations { get; set; }
-        public DbSet<ConversationMember> ConversationMembers { get; set; }
-        public DbSet<MessageReadReceipt> MessageReadReceipts { get; set; }
-        public DbSet<MessageMention> MessageMentions { get; set; }
-        public DbSet<MessageLink> MessageLinks { get; set; }
-        public DbSet<FileAttachment> FileAttachments { get; set; }
-        public DbSet<DeviceToken> DeviceTokens { get; set; }
-        public DbSet<MessageReaction> MessageReactions { get; set; }
-        public DbSet<ChatFolder> ChatFolders { get; set; }
         public DbSet<ChatFolderItem> ChatFolderItems { get; set; }
+        public DbSet<ChatFolder> ChatFolders { get; set; }
+        public DbSet<Club> Clubs { get; set; }
+        public DbSet<ConversationMember> ConversationMembers { get; set; }
+        public DbSet<Conversation> Conversations { get; set; }
+        public DbSet<DeviceToken> DeviceTokens { get; set; }
         public DbSet<ExternalChatMapping> ExternalChatMappings { get; set; }
-        public DbSet<Section> Sections { get; set; }
+        public DbSet<FileAttachment> FileAttachments { get; set; }
+        public DbSet<IdmRoleMap> IdmRoleMap { get; set; }
+        public DbSet<LimitKey> LimitKeys { get; set; }
+        public DbSet<MessageLink> MessageLinks { get; set; }
+        public DbSet<MessageMention> MessageMentions { get; set; }
+        public DbSet<MessageReaction> MessageReactions { get; set; }
+        public DbSet<MessageReadReceipt> MessageReadReceipts { get; set; }
+        public DbSet<Message> Messages { get; set; }
         public DbSet<Permission> Permissions { get; set; }
+        public DbSet<RefreshToken> RefreshTokens { get; set; }
+        public DbSet<RolePermission> RolePermissions { get; set; }
         public DbSet<Role> Roles { get; set; }
         public DbSet<RoleSection> RoleSections { get; set; }
-        public DbSet<RolePermission> RolePermissions { get; set; }
-        public DbSet<UserSectionOverride> UserSectionOverrides { get; set; }
-        public DbSet<UserPermissionOverride> UserPermissionOverrides { get; set; }
-        public DbSet<UserLimit> UserLimits { get; set; }
+        public DbSet<Section> Sections { get; set; }
         public DbSet<UserClub> UserClubs { get; set; }
+        public DbSet<UserLimit> UserLimits { get; set; }
+        public DbSet<UserPermissionOverride> UserPermissionOverrides { get; set; }
         public DbSet<UserProfile> UserProfiles { get; set; }
-        public DbSet<Club> Clubs { get; set; }
+        public DbSet<User> Users { get; set; }
+        public DbSet<UserSectionOverride> UserSectionOverrides { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

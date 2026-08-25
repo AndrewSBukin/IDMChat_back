@@ -1,6 +1,7 @@
 ﻿using Asp.Versioning;
 using Google.Apis.Http;
 using IDMChat.DTO;
+using IDMChat.Middleware;
 using IDMChat.Models;
 using IDMChat.Services;
 using IDMChat.Utils;
@@ -24,8 +25,9 @@ public class AuthController : ControllerBase
     private readonly UserCache _userCache;
     private readonly IAuthContextService _authContextService;
     private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient, IAuthContextService authContextService, IServiceProvider serviceProvider)
+    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient, IAuthContextService authContextService, IServiceProvider serviceProvider, ILogger<AuthController> logger)
     {
         _dbContext = dbContext;
         _config = config;
@@ -34,6 +36,7 @@ public class AuthController : ControllerBase
         _userCache = userCache;
         _authContextService = authContextService;
         _serviceProvider = serviceProvider;
+        _logger = logger;
     }
 
     class IdmUser
@@ -93,12 +96,14 @@ public class AuthController : ControllerBase
             _dbContext.Users.Add(localUser);
             await _dbContext.SaveChangesAsync(ct);
 
+            var roleMap = await _dbContext.IdmRoleMap.FirstOrDefaultAsync(x => x.IdmRole == idmResult.Role);
+
             var defaultProfile = new UserProfile
             {
                 UserId = localUser.Id,
-                RoleId = null, // Будет настроено позже через админку, либо привяжите дефолтную роль
-                DefaultSectionKey = null,
-                ClubLandingSectionKey = null
+                RoleId = null,
+                DefaultSectionKey = roleMap.DefaultSectionKey,
+                ClubLandingSectionKey = roleMap.ClubLandingSectionKey
             };
             _dbContext.UserProfiles.Add(defaultProfile);
         }
@@ -194,6 +199,27 @@ public class AuthController : ControllerBase
         _dbContext.RefreshTokens.Add(refreshTokenEntity);
         await _dbContext.SaveChangesAsync();
 
+        var menu = authContext.menu.Select(m => new MenuDto
+        {
+            key = m.key,
+            scope = m.scope,
+            title = m.title,
+            icon = m.icon,
+            order = m.order,
+            children = m.children.Select(c => new MenuDto
+            {
+                key = c.key,
+                scope = m.scope, // ⚠️ Дочерние листья наследуют scope родителя по ТЗ
+                title = c.title,
+                icon = c.icon,
+                order = c.order,
+                children = new List<MenuDto>() // Глубже 1 уровня клиент дерево не строит
+            }).ToList()
+        }).ToList();
+
+        if (menu.Count == 0)
+            _logger.LogError($"Empty menu for {userDto.username}");
+
         return Ok(new LoginResultDto()
         {
             access_token = accessToken,
@@ -203,24 +229,7 @@ public class AuthController : ControllerBase
             permissions = authContext.permissions,
             limits = authContext.limits,
             clubs = authContext.clubs.Select(ClubMapper.ToFrontendDto).ToList(),
-
-            menu = authContext.menu.Select(m => new MenuDto
-            {
-                key = m.key,
-                scope = m.scope,
-                title = m.title,
-                icon = m.icon,
-                order = m.order,
-                children = m.children.Select(c => new MenuDto
-                {
-                    key = c.key,
-                    scope = m.scope, // ⚠️ Дочерние листья наследуют scope родителя по ТЗ
-                    title = c.title,
-                    icon = c.icon,
-                    order = c.order,
-                    children = new List<MenuDto>() // Глубже 1 уровня клиент дерево не строит
-                }).ToList()
-            }).ToList()
+            menu = menu
         });
     }
 
@@ -388,6 +397,124 @@ public class AuthController : ControllerBase
         return NoContent();
     }
 
+
+    [HttpGet("me")]
+    public async Task<IActionResult> Me(CancellationToken ct = default)
+    {
+        var user = HttpContext.GetCurrentUser();
+
+        if (user == null) return NotFound();
+
+        var localUser = user;
+        _userCache.AddOrUpdateUser(localUser.Id, localUser.DisplayName, localUser.AvatarUrl, localUser.CustomStatus, localUser.LastSeenAt, localUser.IdmUserId, localUser.IsActive);
+
+
+        // TODO: check if user is active in 
+        if (!localUser.IsActive)
+            return Unauthorized(new { error = new { code = "ACCOUNT_BLOCKED", message = "Учетная запись заблокирована." } });
+
+        // Обновляем данные пользователя
+        localUser.LastLoginAt = DateTime.UtcNow;
+        localUser.LastSeenAt = DateTime.UtcNow;
+        _dbContext.Users.Update(localUser);
+        await _dbContext.SaveChangesAsync();
+
+        var authContext = await _authContextService.GetContextAsync(localUser.Id, ct);
+
+        if (localUser.IdmUserId.HasValue)
+        {
+            if (authContext.clubs != null && authContext.clubs.Count > 0)
+            {
+                // Используем Task.Run для Fire-and-Forget
+                _ = Task.Run(async () =>
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var idmClient = scope.ServiceProvider.GetRequiredService<IIdmApiClient>();
+                    var clubSyncService = scope.ServiceProvider.GetRequiredService<IClubSyncService>();
+
+                    var idmClubs = await idmClient.GetUserClubsAsync(localUser.IdmUserId.Value, CancellationToken.None);
+                    await clubSyncService.SyncUserClubsAsync(localUser.Id, idmClubs, CancellationToken.None);
+                });
+            }
+            else
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var idmClient = scope.ServiceProvider.GetRequiredService<IIdmApiClient>();
+                var clubSyncService = scope.ServiceProvider.GetRequiredService<IClubSyncService>();
+
+                var idmClubs = await idmClient.GetUserClubsAsync(localUser.IdmUserId.Value, CancellationToken.None);
+                await clubSyncService.SyncUserClubsAsync(localUser.Id, idmClubs, CancellationToken.None);
+            }
+        }
+
+        // Генерируем токены
+        var userDto = new UserDto
+        {
+            id = localUser.Id,
+            username = localUser.Username,
+            display_name = localUser.DisplayName ?? localUser.Username,
+            avatar_url = _urlResolver.ResolveUrl(localUser.AvatarUrl),
+            is_online = true,
+            last_seen_at = localUser.LastSeenAt,
+
+            role = authContext.user.role,
+            //fullName = authContext.user.fullName,
+            clubLandingKey = authContext.user.clubLandingKey,
+            defaultSection = authContext.user.defaultSection != null ? new DefaultSectionDto
+            {
+                key = authContext.user.defaultSection.key,
+                scope = authContext.user.defaultSection.scope
+            } : null
+        };
+
+        var accessToken = GenerateAccessToken(userDto);
+        var refreshToken = GenerateRefreshToken();
+        var expiresIn = Convert.ToInt32(_config["Jwt:ExpiryMinutes"]) * 60;
+
+        // Сохраняем refresh token в БД
+        var refreshTokenEntity = new RefreshToken
+        {
+            Token = refreshToken,
+            UserId = localUser.Id,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            CreatedByIp = HttpContext.Connection.RemoteIpAddress?.ToString()
+        };
+        _dbContext.RefreshTokens.Add(refreshTokenEntity);
+        await _dbContext.SaveChangesAsync();
+
+        var menu = authContext.menu.Select(m => new MenuDto
+        {
+            key = m.key,
+            scope = m.scope,
+            title = m.title,
+            icon = m.icon,
+            order = m.order,
+            children = m.children.Select(c => new MenuDto
+            {
+                key = c.key,
+                scope = m.scope, // ⚠️ Дочерние листья наследуют scope родителя по ТЗ
+                title = c.title,
+                icon = c.icon,
+                order = c.order,
+                children = new List<MenuDto>() // Глубже 1 уровня клиент дерево не строит
+            }).ToList()
+        }).ToList();
+
+        if (menu.Count == 0)
+            _logger.LogError($"Empty menu for {userDto.username}");
+
+        return Ok(new LoginResultDto()
+        {
+            access_token = accessToken,
+            refresh_token = refreshToken,
+            expires_in = expiresIn,
+            user = userDto,
+            permissions = authContext.permissions,
+            limits = authContext.limits,
+            clubs = authContext.clubs.Select(ClubMapper.ToFrontendDto).ToList(),
+            menu = menu
+        });
+    }
 
 
     private string GenerateAccessToken(UserDto user)
