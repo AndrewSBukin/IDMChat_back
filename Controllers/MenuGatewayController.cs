@@ -16,13 +16,13 @@ namespace IDMChat.Controllers
     public class MenuGatewayController : ControllerBase
     {
         private readonly ChatDbContext _db;
-        private readonly HttpClient _httpClient;
+        private readonly IIdmApiClient _idmApiClient;
         private readonly IAuthContextService _authContextService;
 
-        public MenuGatewayController(ChatDbContext db, HttpClient httpClient, IAuthContextService authContextService)
+        public MenuGatewayController(ChatDbContext db, IIdmApiClient idmApiClient, IAuthContextService authContextService)
         {
             _db = db;
-            _httpClient = httpClient;
+            _idmApiClient = idmApiClient;
             _authContextService = authContextService;
         }
 
@@ -35,8 +35,8 @@ namespace IDMChat.Controllers
         /// POST /api/v1/menugateway/daily.expense.edit/CreateExpense (с тяжелым JSON в теле)
         /// </summary>
         [AcceptVerbs("GET", "POST", "PUT", "DELETE")]
-        [Route("{screenKey}/{*action}")] // Ловит любые HTTP-методы: GET, POST, PUT, DELETE
-        public async Task<IActionResult> ProxyRequest234(string screenKey, string action)
+        [Route("{screenKey}/{*act}")] // Ловит любые HTTP-методы: GET, POST, PUT, DELETE
+        public async Task<IActionResult> ProxyRequest234(string screenKey, string act)
         {
             var userId = HttpContext.GetCurrentUserId();
 
@@ -65,7 +65,7 @@ namespace IDMChat.Controllers
             var queryString = HttpContext.Request.QueryString.Value;
 
             // Мапим запрос на внутренний контроллер ИДМ, выделенный под чат (например, /api/chatgateway/)
-            var idmTargetUrl = $"{_httpClient.BaseAddress}chatgateway/{action}{queryString}";
+            var idmTargetUrl = $"{_idmApiClient.Http.BaseAddress}chatgateway/{screenKey}/{act}{queryString}";
 
             // 3. ФОРМИРУЕМ ТРАНЗИТНЫЙ ЗАПРОС К ИДМ
             var targetMethod = new HttpMethod(HttpContext.Request.Method);
@@ -81,11 +81,11 @@ namespace IDMChat.Controllers
             }
 
             // Добавляем наши обязательные заголовки: секретный ключ и ID инициатора в ИДМ для внутренних проверок
+            outboundRequest.Headers.Add("X-Chat-Initiator-IdmId", user.IdmUserId.ToString()); // Передаем родной ID пользователя в ИДМ
             outboundRequest.Headers.Add("X-Internal-Api-Key", "SuperSecretKey_IdmToChat_2026_SecureToken!");
-            outboundRequest.Headers.Add("X-Chat-Initiator-IdmId", user.idm); // Передаем родной ID пользователя в ИДМ
 
             // 4.ОТПРАВЛЯЕМ В ИДМ И СТРИМИМ ОТВЕТ НАЗАД КЛИЕНТУ
-            var response = await _httpClient.SendAsync(outboundRequest, HttpCompletionOption.ResponseHeadersRead);
+            var response = await _idmApiClient.Http.SendAsync(outboundRequest, HttpCompletionOption.ResponseHeadersRead);
 
             if (!response.IsSuccessStatusCode)
             {

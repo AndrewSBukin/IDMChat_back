@@ -4,6 +4,7 @@ namespace IDMChat.Services
 {
     public interface IIdmApiClient
     {
+        HttpClient Http { get; }
         Task<List<IdmClubDto>> GetUserClubsAsync(int userId, CancellationToken ct);
         Task<IdmAuthResultDto?> VerifyCredentialsAsync(string username, string password, CancellationToken ct = default);
 
@@ -13,6 +14,7 @@ namespace IDMChat.Services
     public class IdmApiClient : IIdmApiClient
     {
         private readonly HttpClient _http;
+        public HttpClient Http => _http;
 
         // Внедряем HttpClient. Фабрика настроит его автоматически!
         public IdmApiClient(HttpClient http)
