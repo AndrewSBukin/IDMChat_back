@@ -183,7 +183,7 @@ public class AuthController : ControllerBase
                 scope = authContext.user.defaultSection.scope
             } : null
         };
-
+        
         var accessToken = GenerateAccessToken(userDto);
         var refreshToken = GenerateRefreshToken();
         var expiresIn = Convert.ToInt32(_config["Jwt:ExpiryMinutes"]) * 60;
@@ -228,7 +228,7 @@ public class AuthController : ControllerBase
             user = userDto,
             permissions = authContext.permissions,
             limits = authContext.limits,
-            clubs = authContext.clubs.Select(ClubMapper.ToFrontendDto).ToList(),
+            clubs = authContext.clubs.Select(c => ClubMapper.ToFrontendDto(c, localUser.idm)).ToList(),
             menu = menu
         });
     }
@@ -242,12 +242,13 @@ public class AuthController : ControllerBase
             name = idmClub.Name,
             city = new CityDto { name = idmClub.CityName, gmt = idmClub.CityGmt }
         };
-        public static ClubDto ToFrontendDto(ThinClubDto idmClub) => new ClubDto
+        public static ClubDto ToFrontendDto(ThinClubDto idmClub, string? userIdm) => new ClubDto
         {
             id = idmClub.id,
             bbID = idmClub.bbid, // p.bbID из ИДМ
             name = idmClub.name,
-            city = new CityDto { name = idmClub.city.name, gmt = idmClub.city.gmt }
+            city = new CityDto { name = idmClub.city.name, gmt = idmClub.city.gmt },
+            isPartner = idmClub.idm == userIdm
         };
     }
 
@@ -511,7 +512,7 @@ public class AuthController : ControllerBase
             user = userDto,
             permissions = authContext.permissions,
             limits = authContext.limits,
-            clubs = authContext.clubs.Select(ClubMapper.ToFrontendDto).ToList(),
+            clubs = authContext.clubs.Select(c => ClubMapper.ToFrontendDto(c, localUser.idm)).ToList(),
             menu = menu
         });
     }

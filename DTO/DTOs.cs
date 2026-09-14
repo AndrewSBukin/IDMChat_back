@@ -43,6 +43,7 @@ namespace IDMChat.DTO
         public string bbID { get; set; } = string.Empty;
         public string name { get; set; } = string.Empty;
         public CityDto city { get; set; } = new CityDto();
+        public bool isPartner { get; internal set; }
     }
     public class CityDto
     {
@@ -682,6 +683,8 @@ namespace IDMChat.DTO
         public string bbid { get; set; } = string.Empty;
 
         public string name { get; set; } = string.Empty;
+
+        public string idm { get; set; } = string.Empty;
 
         public CityDto city { get; set; } = null!;
     }

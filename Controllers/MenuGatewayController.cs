@@ -76,8 +76,19 @@ namespace IDMChat.Controllers
             {
                 // Стримим тело запроса от клиента напрямую в ИДМ, не загружая его целиком в память чата
                 outboundRequest.Content = new StreamContent(HttpContext.Request.Body);
-                outboundRequest.Content.Headers.ContentType =
-                    new System.Net.Http.Headers.MediaTypeHeaderValue(HttpContext.Request.ContentType ?? "application/json");
+                //outboundRequest.Content.Headers.ContentType =
+                //    new System.Net.Http.Headers.MediaTypeHeaderValue(HttpContext.Request.ContentType ?? "application/json");
+
+                // Безопасно парсим входящий Content-Type со всеми его параметрами (включая boundary)
+                if (System.Net.Http.Headers.MediaTypeHeaderValue.TryParse(HttpContext.Request.ContentType, out var parsedContentType))
+                {
+                    outboundRequest.Content.Headers.ContentType = parsedContentType;
+                }
+                else
+                {
+                    // Фолбек, если заголовок пустой или совсем некорректный
+                    outboundRequest.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                }
             }
 
             // Добавляем наши обязательные заголовки: секретный ключ и ID инициатора в ИДМ для внутренних проверок
@@ -92,8 +103,36 @@ namespace IDMChat.Controllers
                 return StatusCode((int)response.StatusCode, "ИДМ отказала в обработке операции");
             }
 
+            var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/json";
             var responseStream = await response.Content.ReadAsStreamAsync();
-            return File(responseStream, response.Content.Headers.ContentType?.ToString() ?? "application/json");
+
+            bool isExcel = contentType.Contains("excel") || contentType.Contains("spreadsheetml");
+            if (isExcel)
+            {
+                // 1. Пробуем достать имя файла из заголовков ответа ИДМ
+                string? fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+                                   ?? response.Content.Headers.ContentDisposition?.FileName;
+
+                // 2. Очищаем имя от лишних кавычек (бывает при некоторых кодировках)
+                fileName = fileName?.Trim('"');
+
+                // 3. Если ИДМ не прислала имя, делаем понятное дефолтное имя
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    string extension = contentType.Contains("spreadsheetml") ? "xlsx" : "xls";
+                    fileName = $"report_{screenKey}_{act}.{extension}";
+                }
+
+                // Для Excel используем FileResult, чтобы у клиента правильно запустилось скачивание
+                return File(responseStream, contentType, fileName);
+            }
+
+            // Для JSON и прочих текстовых данных пишем напрямую в HTTP-ответ (без буферизации в RAM)
+            Response.StatusCode = (int)response.StatusCode;
+            Response.ContentType = contentType;
+
+            await responseStream.CopyToAsync(Response.Body);
+            return new EmptyResult();
         }
     }
 }
