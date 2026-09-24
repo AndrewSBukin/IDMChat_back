@@ -726,4 +726,14 @@ namespace IDMChat.DTO
         string CityName,  // Денормализованный город ("Ростов-на-Дону")
         int CityGmt       // Таймзона города (напр. 3)
     );
+
+    #region Desctop updates
+    public class DesktopUpdateResponse
+    {
+        public string? version { get; set; }
+        public int build { get; set; }
+        public string? url { get; set; }
+        public string? sha256 { get; set; }
+    }
+    #endregion
 }
