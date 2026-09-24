@@ -31,32 +31,62 @@ namespace IDMChat.Controllers
             if (string.IsNullOrWhiteSpace(req.token) || string.IsNullOrWhiteSpace(req.deviceId))
                 return BadRequest(new { error = new { code = "INVALID_DATA", message = "token и deviceId обязательны" } });
 
-            // Ищем, нет ли уже этого устройства у пользователя
-            var existingToken = await _db.DeviceTokens
+            var targetPlatform = req.platform?.ToLower() ?? "android";
+
+            // Если этот конкретный FCM-токен уже зарегистрирован в базе за ДРУГИМ пользователем 
+            // или на ДРУГОМ deviceId, мы обязаны очистить эти старые неактуальные привязки.
+            var duplicateTokens = await _db.DeviceTokens
+                .Where(t => t.Token == req.token && (t.UserId != userId || t.DeviceId != req.deviceId))
+                .ToListAsync(ct);
+
+            if (duplicateTokens.Any())
+            {
+                _db.DeviceTokens.RemoveRange(duplicateTokens);
+                // Не делаем SaveChangesAsync сразу, EF Core объединит это в одну транзакцию ниже
+            }
+
+            // Ищем запись по паре Юзер + Девайс
+            var existingTokenByDevice = await _db.DeviceTokens
                 .FirstOrDefaultAsync(t => t.UserId == userId && t.DeviceId == req.deviceId, ct);
 
-            if (existingToken != null)
+            if (existingTokenByDevice != null)
             {
-                // Обновляем токен, если он изменился
-                existingToken.Token = req.token;
-                existingToken.Platform = req.platform.ToLower();
-                existingToken.UpdatedAt = DateTime.UtcNow;
+                // Если девайс найден — просто обновляем токен (стандартный сценарий)
+                existingTokenByDevice.Token = req.token;
+                existingTokenByDevice.Platform = targetPlatform;
+                existingTokenByDevice.UpdatedAt = DateTime.UtcNow;
             }
             else
             {
-                // Если зашли под новой учеткой на том же девайсе — удаляем этот девайс у старых юзеров
-                var oldDeviceOwners = _db.DeviceTokens.Where(t => t.DeviceId == req.deviceId);
-                _db.DeviceTokens.RemoveRange(oldDeviceOwners);
+                // Если пара Юзер+Девайс не найдена, проверяем: возможно у ЭТОГО же юзера 
+                // этот же ТОКЕН уже привязан к СТАРЫМУ deviceId (тот самый случай Xcode апдейта)
+                var existingTokenByUserAndToken = await _db.DeviceTokens
+                            .FirstOrDefaultAsync(t => t.UserId == userId && t.Token == req.token, ct);
 
-                // Добавляем новую привязку
-                _db.DeviceTokens.Add(new DeviceToken
+                if (existingTokenByUserAndToken != null)
                 {
-                    UserId = userId,
-                    DeviceId = req.deviceId,
-                    Token = req.token,
-                    Platform = req.platform.ToLower(),
-                    UpdatedAt = DateTime.UtcNow
-                });
+                    // Не плодим строку! Переиспользуем её, обновив изменившийся DeviceId
+                    existingTokenByUserAndToken.DeviceId = req.deviceId;
+                    existingTokenByUserAndToken.Platform = targetPlatform;
+                    existingTokenByUserAndToken.UpdatedAt = DateTime.UtcNow;
+                }
+                else
+                {
+                    // Абсолютно новое устройство под новой учетной записью.
+                    // На всякий случай чистим старых владельцев этого конкретного DeviceId (ваша исходная логика)
+                    var oldDeviceOwners = _db.DeviceTokens.Where(t => t.DeviceId == req.deviceId);
+                    _db.DeviceTokens.RemoveRange(oldDeviceOwners);
+
+                    // Создаем чистую привязку
+                    _db.DeviceTokens.Add(new DeviceToken
+                    {
+                        UserId = userId,
+                        DeviceId = req.deviceId,
+                        Token = req.token,
+                        Platform = targetPlatform,
+                        UpdatedAt = DateTime.UtcNow
+                    });
+                }
             }
 
             await _db.SaveChangesAsync(ct);

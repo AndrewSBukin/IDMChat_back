@@ -162,8 +162,21 @@ namespace IDMChat
 
             builder.Services.AddAuthorization();
 
-            builder.Services.AddSingleton<IBackgroundPushQueue, BackgroundPushQueue>();
-            builder.Services.AddHostedService<PushBatchProcessor>(); // background writer
+            //builder.Services.AddSingleton<IBackgroundBatchQueue, BackgroundBatchQueue>();
+            //builder.Services.AddHostedService<BatchProcessor1>(); // background writer
+            builder.Services.AddScoped<IBatchProcessor<Task1>, BatchProcessor1>();
+            builder.Services.AddScoped<IBatchProcessor<Task2>, BatchProcessor2>();
+            builder.Services.AddScoped<IBatchProcessor<Task3>, BatchProcessor3>();
+
+            // Регистрируем две инфраструктурные очереди (как делали ранее)
+            builder.Services.AddSingleton<IBackgroundBatchQueue<Task1>, BackgroundBatchQueue<Task1>>();
+            builder.Services.AddSingleton<IBackgroundBatchQueue<Task2>, BackgroundBatchQueue<Task2>>();
+            builder.Services.AddSingleton<IBackgroundBatchQueue<Task3>, BackgroundBatchQueue<Task3>>();
+
+            // Регистрируем ДВА фоновых воркера. Фреймворк сам запустит ExecuteAsync для каждого!
+            builder.Services.AddHostedService<BatchProcessor<Task1>>();
+            builder.Services.AddHostedService<BatchProcessor<Task2>>();
+            builder.Services.AddHostedService<BatchProcessor<Task3>>();
 
             //builder.Services.AddSingleton<IMessageDtoMapper, MessageDtoMapper>();
 
@@ -204,7 +217,7 @@ namespace IDMChat
                 // Логгер или предупреждение, чтобы локально у вас не падало без этого файла
                 Console.WriteLine("Критическая ошибка: Файл ключа Firebase не найден!");
             }
-            builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
+            //builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
 
             var app = builder.Build();
 

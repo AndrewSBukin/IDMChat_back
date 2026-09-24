@@ -26,11 +26,13 @@ namespace IDMChat.Hubs
         private readonly UserCache _userCache;
         private readonly ILogger<ChatHub> _logger;
         private readonly IChatPathUrlResolver _urlResolver;
-        private readonly IBackgroundPushQueue _backgroundPushQueue;
+        private readonly IBackgroundBatchQueue<Task1> _backgroundPushQueue;
+        private readonly IBackgroundBatchQueue<Task2> _backgroundSignalRQueue;
+        private readonly IBackgroundBatchQueue<Task3> _backgroundBotQueue;
         private readonly INewMessageService _newMessageService;
         private readonly IServiceProvider _serviceProvider;
 
-        public ChatHub(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundPushQueue backgroundPushQueue, INewMessageService newMessageService, IServiceProvider serviceProvider)
+        public ChatHub(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundBatchQueue<Task1> backgroundPushQueue, INewMessageService newMessageService, IServiceProvider serviceProvider, IBackgroundBatchQueue<Task2> backgroundSignalRQueue, IBackgroundBatchQueue<Task3> backgroundBotQueue)
         {
             _db = dbContext;
             _chatCache = chatCache;
@@ -40,6 +42,8 @@ namespace IDMChat.Hubs
             _backgroundPushQueue = backgroundPushQueue;
             _newMessageService = newMessageService;
             _serviceProvider = serviceProvider;
+            _backgroundSignalRQueue = backgroundSignalRQueue;
+            _backgroundBotQueue = backgroundBotQueue;
         }
 
         public override async Task OnConnectedAsync()
@@ -187,7 +191,7 @@ namespace IDMChat.Hubs
             {
                 // Отправляем задачу в фоновую очередь, чтобы бэк быстро ответил фронту, 
                 // а тяжелый запрос во внешнюю систему ушел в бэкграунд
-                _backgroundPushQueue.Enqueue(new PushNotificationTask
+                _backgroundBotQueue.Enqueue(new Task3
                 {
                     MessageId = message.Id,
                     ConversationId = message.ConversationId,
@@ -204,7 +208,7 @@ namespace IDMChat.Hubs
             var userId = Context.GetUserId();
 
             // Бросаем задачу в очередь, чтобы воркер уведомил внешнюю систему о клике
-            _backgroundPushQueue.Enqueue(new PushNotificationTask
+            _backgroundBotQueue.Enqueue(new Task3
             {
                 MessageId = messageId,
                 ConversationId = conversationId,
@@ -464,13 +468,21 @@ namespace IDMChat.Hubs
                     finalMessageType = allSameType ? firstType.ToString().ToLower() : "text";
                 }
 
-                _backgroundPushQueue.Enqueue(new PushNotificationTask
+                _backgroundPushQueue.Enqueue(new Task1
                 {
                     ConversationId = targetChatId,
                     SenderId = currentUserId,
                     MessageText = pushText, // Передаем адаптированный под форвард текст
                     MessageType = finalMessageType,
                     MessageId = lastForwardedMessage.Id,
+
+                    // Передаем отфильтрованный список участников целевого чата
+                    TargetUserIds = pushRecipients
+                });
+
+                _backgroundSignalRQueue.Enqueue(new Task2
+                {
+                    ConversationId = targetChatId,
 
                     // Передаем отфильтрованный список участников целевого чата
                     TargetUserIds = pushRecipients

@@ -26,10 +26,11 @@ namespace IDMChat.Services
         private readonly UserCache _userCache;
         private readonly ILogger<ChatHub> _logger;
         private readonly IChatPathUrlResolver _urlResolver;
-        private readonly IBackgroundPushQueue _backgroundPushQueue;
+        private readonly IBackgroundBatchQueue<Task1> _backgroundPushQueue;
+        private readonly IBackgroundBatchQueue<Task2> _backgroundSignalRQueue;
         private readonly IHubContext<ChatHub> _hubContext;
 
-        public NewMessageService(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundPushQueue backgroundPushQueue, IHubContext<ChatHub> hubContext)
+        public NewMessageService(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundBatchQueue<Task1> backgroundPushQueue, IHubContext<ChatHub> hubContext, IBackgroundBatchQueue<Task2> backgroundSignalRQueue)
         {
             _db = dbContext;
             _chatCache = chatCache;
@@ -38,6 +39,7 @@ namespace IDMChat.Services
             _urlResolver = urlResolver;
             _backgroundPushQueue = backgroundPushQueue;
             _hubContext = hubContext;
+            _backgroundSignalRQueue = backgroundSignalRQueue;
         }
 
         public async Task<Message?> HandleSendSystemMessage(Guid conversationId, string text, CancellationToken ct = default)
@@ -407,7 +409,7 @@ namespace IDMChat.Services
                     : new List<Guid>();
 
                 // Скидываем тяжелую задачу отправки пушей в фоновую очередь, полностью освобождая основной поток чата
-                _backgroundPushQueue.Enqueue(new PushNotificationTask
+                _backgroundPushQueue.Enqueue(new Task1
                 {
                     // Заполняем DTO данными, которые батч-процессор отправит на шлюз
                     ConversationId = message.ConversationId,
@@ -415,6 +417,14 @@ namespace IDMChat.Services
                     MessageText = message.Text,
                     MessageType = msg.type,
                     MessageId = message.Id,
+
+                    // Передаем ID пользователей, кому предназначен пуш (например, меншены или все участники чата)
+                    TargetUserIds = validMentionIds.ToList()
+                });
+                _backgroundSignalRQueue.Enqueue(new Task2
+                {
+                    // Заполняем DTO данными, которые батч-процессор отправит на шлюз
+                    ConversationId = message.ConversationId,
 
                     // Передаем ID пользователей, кому предназначен пуш (например, меншены или все участники чата)
                     TargetUserIds = validMentionIds.ToList()

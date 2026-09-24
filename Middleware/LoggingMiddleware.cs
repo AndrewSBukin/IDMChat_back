@@ -13,18 +13,18 @@ namespace IDMChat.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<LoggingMiddleware> _logger;
-        private readonly IBackgroundPushQueue _logQueue; // our custom queue
+        //private readonly IBackgroundBatchQueue _logQueue; // our custom queue
         private readonly int _maxBodyLength;
 
         public LoggingMiddleware(
             RequestDelegate next,
             ILogger<LoggingMiddleware> logger,
-            IBackgroundPushQueue logQueue,
+            //IBackgroundBatchQueue logQueue,
             IConfiguration configuration)
         {
             _next = next;
             _logger = logger;
-            _logQueue = logQueue;
+            //_logQueue = logQueue;
             _maxBodyLength = configuration.GetValue("Logging:MaxBodyLength", 4096);
         }
 
