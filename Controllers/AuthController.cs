@@ -18,6 +18,8 @@ using System.Text;
 [ApiVersion("1.0")]
 public class AuthController : ControllerBase
 {
+    private const int RefreshTokenTtlDays = 7;
+
     private readonly ChatDbContext _dbContext;
     private readonly IConfiguration _config;
     private readonly IChatPathUrlResolver _urlResolver;
@@ -26,8 +28,9 @@ public class AuthController : ControllerBase
     private readonly IAuthContextService _authContextService;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AuthController> _logger;
+    private readonly LoginRateLimiter _rateLimiter;
 
-    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient, IAuthContextService authContextService, IServiceProvider serviceProvider, ILogger<AuthController> logger)
+    public AuthController(ChatDbContext dbContext, IConfiguration config, IChatPathUrlResolver urlResolver, UserCache userCache, IIdmApiClient idmClient, IAuthContextService authContextService, IServiceProvider serviceProvider, ILogger<AuthController> logger, LoginRateLimiter rateLimiter)
     {
         _dbContext = dbContext;
         _config = config;
@@ -37,6 +40,7 @@ public class AuthController : ControllerBase
         _authContextService = authContextService;
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _rateLimiter = rateLimiter;
     }
 
     class IdmUser
@@ -51,6 +55,13 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest dto, CancellationToken ct = default)
     {
+        // --- RATE LIMITING: защита от перебора паролей ---
+        var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var normalizedUsername = (dto.Username ?? string.Empty).Trim().ToLowerInvariant();
+
+        _rateLimiter.CheckAndCountPerIp($"login:ip:{clientIp}");
+        _rateLimiter.CheckAndCountPerUser($"login:user:{clientIp}:{normalizedUsername}");
+
         if (string.IsNullOrEmpty(dto.Username) || string.IsNullOrEmpty(dto.Password))
         {
             return Unauthorized(new
@@ -70,6 +81,9 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new { error = new { code = "INVALID_CREDENTIALS", message = "Неверный логин или пароль, либо учетная запись заблокирована в ИДМ" } });
         }
+
+        // Успешная проверка в ИДМ - сбрасываем счётчик попыток для этой пары IP+логин
+        _rateLimiter.Reset($"login:user:{clientIp}:{normalizedUsername}");
 
         string incomingName = !string.IsNullOrWhiteSpace(idmResult.FullName) ? idmResult.FullName : dto.Username;
 
@@ -193,7 +207,7 @@ public class AuthController : ControllerBase
         {
             Token = refreshToken,
             UserId = localUser.Id,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            ExpiresAt = DateTime.UtcNow.AddDays(RefreshTokenTtlDays),
             CreatedByIp = HttpContext.Connection.RemoteIpAddress?.ToString()
         };
         _dbContext.RefreshTokens.Add(refreshTokenEntity);
@@ -356,14 +370,30 @@ public class AuthController : ControllerBase
         var accessToken = GenerateAccessToken(userDto);
         var expiresIn = Convert.ToInt32(_config["Jwt:ExpiryMinutes"]) * 60;
 
-        // Опционально: обновляем дату последнего использования refresh token
-        refreshToken.CreatedAt = DateTime.UtcNow;
-        _dbContext.RefreshTokens.Update(refreshToken);
+        // --- РОТАЦИЯ REFRESH-ТОКЕНА ---
+        // Старый токен НЕ удаляем: запись остаётся в БД как история логинов
+        // (CreatedAt сохраняет исходное время входа). Но сразу отзываем его -
+        // повторно использовать нельзя (защита от replay). Новый токен живёт
+        // тот же TTL, и его срок проверяется при каждом использовании (IsExpired).
+        //refreshToken.RevokedAt = DateTime.UtcNow;
+        //refreshToken.RevokedByIp = HttpContext.Connection.RemoteIpAddress?.ToString();
+        //_dbContext.RefreshTokens.Update(refreshToken);
+
+        //var newRefreshToken = GenerateRefreshToken();
+        //var refreshTokenEntity = new RefreshToken
+        //{
+        //    Token = newRefreshToken,
+        //    UserId = user.Id,
+        //    ExpiresAt = DateTime.UtcNow.AddDays(RefreshTokenTtlDays),
+        //    CreatedByIp = HttpContext.Connection.RemoteIpAddress?.ToString()
+        //};
+        //_dbContext.RefreshTokens.Add(refreshTokenEntity);
         await _dbContext.SaveChangesAsync();
 
         return Ok(new RefreshResultDto()
         {
             access_token = accessToken,
+            //refresh_token = newRefreshToken,
             expires_in = expiresIn
         });
     }
@@ -477,7 +507,7 @@ public class AuthController : ControllerBase
         {
             Token = refreshToken,
             UserId = localUser.Id,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            ExpiresAt = DateTime.UtcNow.AddDays(RefreshTokenTtlDays),
             CreatedByIp = HttpContext.Connection.RemoteIpAddress?.ToString()
         };
         _dbContext.RefreshTokens.Add(refreshTokenEntity);

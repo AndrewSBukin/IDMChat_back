@@ -60,6 +60,7 @@ namespace IDMChat
             builder.Services.AddMemoryCache();
             builder.Services.AddSingleton<ChatStateCache>();
             builder.Services.AddSingleton<UserCache>();
+            builder.Services.AddSingleton<LoginRateLimiter>();
             builder.Services.AddHostedService<CacheWarmupService>();
             builder.Services.AddSignalR(options =>
             {
@@ -263,8 +264,20 @@ namespace IDMChat
                             ForbiddenException => (403, "FORBIDDEN", exception.Message),
                             ValidationException => (400, "VALIDATION_ERROR", exception.Message),
                             UnauthorizedException => (401, "UNAUTHORIZED", "Требуется авторизация"),
-                            _ => (500, "INTERNAL_ERROR", exception?.ToString())
+                            _ => (500, "INTERNAL_ERROR", "Internal error")
                         };
+
+                        // Неизвестные ошибки: клиенту отдаём generic-сообщение,
+                        // а полную информацию (включая стектрейс) пишем в отдельный debug-канал
+                        if (statusCode == 500)
+                        {
+                            NLog.LogManager.GetLogger("ExceptionDebug")
+                                .Error(exception,
+                                    "Unhandled exception. TraceId={TraceId}, Method={Method}, Path={Path}",
+                                    context.TraceIdentifier,
+                                    context.Request.Method,
+                                    context.Request.Path);
+                        }
 
                         context.Response.StatusCode = statusCode;
                         await context.Response.WriteAsJsonAsync(new { code, message });
@@ -272,7 +285,7 @@ namespace IDMChat
                 }
             });
 
-            //if (app.Environment.IsDevelopment())
+            if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
                 app.UseSwaggerUI(options =>
