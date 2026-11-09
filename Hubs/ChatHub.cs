@@ -254,15 +254,32 @@ namespace IDMChat.Hubs
             if (targetChat.IsWriteRestricted && !targetChat.Admins.Contains(currentUserId))
                 throw new HubException("WRITE_RESTRICTED");
 
-            // 3. Загружаем оригинальные сообщения (и проверяем чаты-источники)
+            // 3. Загружаем оригинальные сообщения (вложения нужны для копирования)
             var originalMessages = await _db.Messages
                 .Include(m => m.FileAttachments)
-                .Include(m => m.Conversation) // Чтобы проверить флаг запрета пересылки в будущем
+                //.Include(m => m.Conversation) // Чтобы проверить флаг запрета пересылки в будущем
                 .Where(m => dto.message_ids.Contains(m.Id) && !m.IsDeleted)
                 .ToListAsync();
 
             if (!originalMessages.Any())
                 throw new HubException("MESSAGES_NOT_FOUND");
+
+            // 3.1 Проверка прав на чаты-источники (защита от пересылки чужих сообщений).
+            // Один лёгкий запрос по индексу ConversationMembers на все уникальные чаты пачки
+            // вместо проверки каждого сообщения по отдельности - накладные расходы минимальны.
+            var sourceChatIds = originalMessages
+                .Select(m => m.ConversationId)
+                .Distinct()
+                .ToList();
+
+            var accessibleSourceChatIds = await _db.ConversationMembers
+                .Where(cm => cm.UserId == currentUserId && sourceChatIds.Contains(cm.ConversationId))
+                .Select(cm => cm.ConversationId)
+                .ToListAsync();
+
+            var accessibleSourceSet = accessibleSourceChatIds.ToHashSet();
+            if (sourceChatIds.Any(chatId => !accessibleSourceSet.Contains(chatId)))
+                throw new HubException("NOT_A_CHAT_MEMBER");
 
             // Сортируем строго в том порядке, в котором их прислал фронт (сохраняем хронологию)
             var sortedOriginals = dto.message_ids

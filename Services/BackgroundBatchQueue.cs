@@ -65,12 +65,6 @@ namespace IDMChat.Services
             reader = _channel.Reader;
             return true;
         }
-        /*
-         {
-  "username": "admin",
-  "password": "Qq!11113"
-}
-         */
         public void OnBatchConsumed(int batchSize)
         {
             Interlocked.Add(ref _approximateQueueSize, -batchSize);

@@ -23,6 +23,8 @@ namespace IDMChat.Controllers
     [AllowAnonymous] // Все методы публичны, но жестко защищены по ApiKey
     public class InternalIntegrationController : ControllerBase
     {
+        private const string InternalApiKey = "SuperSecretKey_IdmToChat_2026_SecureToken!";
+
         private readonly ChatDbContext _dbContext;
         private readonly ChatStateCache _chatCache;
         private readonly UserCache _userCache;
@@ -43,9 +45,8 @@ namespace IDMChat.Controllers
         // Вспомогательный метод сквозной проверки ключа ИДМ
         private bool IsValidApiKey()
         {
-            return true;
             if (!Request.Headers.TryGetValue("X-Internal-Api-Key", out var apiKey) ||
-                apiKey != "SuperSecretKey_IdmToChat_2026_SecureToken!")
+                apiKey != InternalApiKey)
             {
                 return false;
             }

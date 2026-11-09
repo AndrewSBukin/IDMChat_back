@@ -466,7 +466,22 @@ namespace IDMChat.Controllers
 
             // 1. Декодируем путь
             //var decodedPath = Uri.UnescapeDataString(filePath);
-            var fullPath = Path.Combine(_storageBasePath, decodedPath);
+
+            // --- ЗАЩИТА ОТ PATH TRAVERSAL ---
+            // Отклоняем попытки выйти за пределы хранилища:
+            //  - сегменты ".." (в т.ч. после URL-декодирования %2e%2e);
+            //  - NUL-байты, которые ломают API файловой системы.
+            var segments = decodedPath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Any(s => s == "..") || decodedPath.Contains('\0'))
+                return NotFound(new { error = new { code = "FILE_NOT_FOUND", message = "Файл не найден" } });
+
+            // Канонизация: итоговый путь обязан оставаться внутри базовой папки хранилища
+            var fullPath = Path.GetFullPath(Path.Combine(_storageBasePath, decodedPath));
+            var baseFullPath = Path.GetFullPath(_storageBasePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+            if (!fullPath.StartsWith(baseFullPath, StringComparison.OrdinalIgnoreCase))
+                return NotFound(new { error = new { code = "FILE_NOT_FOUND", message = "Файл не найден" } });
 
             // 2. Проверяем существование файла
             if (!System.IO.File.Exists(fullPath))

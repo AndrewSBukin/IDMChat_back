@@ -31,6 +31,7 @@ namespace IDMChat.Controllers
             return Ok(new { status = "OK", timestamp = DateTime.UtcNow });
         }
 
+        [Authorize]
         [HttpPost("create-user")]
         public async Task<IActionResult> DebugCreateUser([FromBody] DebugCreateUserRequest request)
         {
