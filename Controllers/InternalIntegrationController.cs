@@ -31,8 +31,9 @@ namespace IDMChat.Controllers
         private readonly IHubContext<ChatHub> _hubContext;
         private readonly IChatPathUrlResolver _urlResolver;
         private readonly INewMessageService _newMessageService;
+        private readonly IMessageDtoMapper _messageDtoMapper;
 
-        public InternalIntegrationController(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, IHubContext<ChatHub> hubContext, IChatPathUrlResolver urlResolver, INewMessageService newMessageService)
+        public InternalIntegrationController(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, IHubContext<ChatHub> hubContext, IChatPathUrlResolver urlResolver, INewMessageService newMessageService, IMessageDtoMapper messageDtoMapper)
         {
             _dbContext = dbContext;
             _chatCache = chatCache;
@@ -40,6 +41,7 @@ namespace IDMChat.Controllers
             _hubContext = hubContext;
             _urlResolver = urlResolver;
             _newMessageService = newMessageService;
+            _messageDtoMapper = messageDtoMapper;
         }
 
         // Вспомогательный метод сквозной проверки ключа ИДМ
@@ -162,20 +164,24 @@ namespace IDMChat.Controllers
                 }
                 existingMessage.Text = incomingText;
                 existingMessage.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync(ct);
 
-                var msg = new ChatHub.NewMessageRequest()
+                // Рассылаем обновление клиентам группы, чтобы сообщение перерисовалось
+                // (аналог EditMessageText в Telegram: «Проверяю баланс...» -> текст баланса)
+                var updatedMessage = await _dbContext.Messages
+                    .AsNoTracking()
+                    .Include(m => m.FileAttachments)
+                    .Include(m => m.Reactions)
+                    .Include(m => m.Mentions)
+                    .Include(m => m.ReplyToMessage)
+                    .FirstOrDefaultAsync(m => m.Id == existingMessage.Id, ct);
+
+                if (updatedMessage != null)
                 {
-                    conversation_id = mapping.ConversationId,
-                    text = isMediaCode ? "" : dto.text?.Trim() ?? string.Empty,
-                    type = globalDetectedType ?? "text",
-                    temp_id = Guid.NewGuid(),
-                    ext_id = dto.id,
-                    attachment_ids = attachment_ids,
-                    mentions = new List<ChatHub.MentionItem>(),
-                    reply_to_message_id = internalReplyToId,
-                    keyboard = dto.keyboard
-                };
-                //await _newMessageService.HandleUpdateMessage(msg, Guid.Parse("00000000-0000-0000-0000-000000000001"), ct);
+                    var updatedDto = _messageDtoMapper.MapToDto(updatedMessage, Guid.Empty);
+                    updatedDto.keyboard = BotKeyboards.ToDto(updatedMessage.KeyboardJson);
+                    await _hubContext.Clients.Group(mapping.ConversationId.ToString()).SendAsync("message_updated", updatedDto, ct);
+                }
 
                 return Ok(new { success = true });
             }
