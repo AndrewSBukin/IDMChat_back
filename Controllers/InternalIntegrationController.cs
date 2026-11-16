@@ -172,7 +172,8 @@ namespace IDMChat.Controllers
                     ext_id = dto.id,
                     attachment_ids = attachment_ids,
                     mentions = new List<ChatHub.MentionItem>(),
-                    reply_to_message_id = internalReplyToId
+                    reply_to_message_id = internalReplyToId,
+                    keyboard = dto.keyboard
                 };
                 //await _newMessageService.HandleUpdateMessage(msg, Guid.Parse("00000000-0000-0000-0000-000000000001"), ct);
 
@@ -300,7 +301,8 @@ namespace IDMChat.Controllers
                     ext_id = dto.id,
                     attachment_ids = attachment_ids,
                     mentions = new List<ChatHub.MentionItem>(),
-                    reply_to_message_id = internalReplyToId
+                    reply_to_message_id = internalReplyToId,
+                    keyboard = dto.keyboard
                 };
                 await _newMessageService.HandleSendMessage(msg, Guid.Parse("00000000-0000-0000-0000-000000000001"), ct);
 

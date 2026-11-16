@@ -513,18 +513,237 @@ namespace IDMChat.Services
             {
                 using var scope = _serviceProvider.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
+                var idmClient = scope.ServiceProvider.GetRequiredService<IIdmApiClient>();
+                var urlResolver = scope.ServiceProvider.GetRequiredService<IChatPathUrlResolver>();
 
-                await ProcessSignalRMentionsAsync(currentBatch, db, ct);
+                await ProcessBotCommandsAsync(currentBatch, db, idmClient, urlResolver, ct);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка обработки пакета упоминаний");
+                _logger.LogError(ex, "Ошибка обработки пакета bot-команд");
             }
         }
 
-        private async Task ProcessSignalRMentionsAsync(List<Task3> batchToSend, ChatDbContext db, CancellationToken ct)
+        /// <summary>
+        /// Обработка bot-команд (пользователь ввёл "/..." или нажал кнопку инлайн-клавиатуры):
+        /// 1. Пересылаем событие в ИДМ (POST /api/chatbot/command).
+        /// 2. Скрываем клавиатуру у сообщения: сбрасываем KeyboardJson в БД и шлём message_updated с keyboard=null.
+        /// </summary>
+        private async Task ProcessBotCommandsAsync(List<Task3> batchToSend, ChatDbContext db, IIdmApiClient idmClient, IChatPathUrlResolver urlResolver, CancellationToken ct)
         {
             _logger.LogDebug($"my-debug bot command batch: {batchToSend.Count}");
+
+            foreach (var task in batchToSend)
+            {
+                try
+                {
+                    // 1. Внешний ID чата для ИДМ
+                    var externalChatId = await db.ExternalChatMappings
+                        .Where(m => m.ConversationId == task.ConversationId)
+                        .Select(m => m.ExternalChatId)
+                        .FirstOrDefaultAsync(ct);
+
+                    // 2. IDM ID отправителя команды
+                    var senderIdmId = await db.Users
+                        .Where(u => u.Id == task.SenderId)
+                        .Select(u => u.IdmUserId)
+                        .FirstOrDefaultAsync(ct);
+
+                    // 3. Нажатие кнопки (PressButton): Task3.MessageId - это сообщение с клавиатурой.
+                    //    Сообщение при нажатии НЕ создаётся - это системное событие, а не сообщение.
+                    //    Обычные команды "/..." (набранные вручную) - обычные сообщения, клавиатуру не трогают.
+                    long? keyboardMessageId = null;
+                    int? keyboardExternalIdmId = null;
+                    string? keyboardJson = null;
+                    string? commandForIdm = task.MessageText;
+                    string? pressedEmoji = null;
+
+                    if (task.MessageType == "bot_button_click")
+                    {
+                        var kbData = await db.Messages
+                            .Where(m => m.Id == task.MessageId && m.ConversationId == task.ConversationId && !m.IsDeleted && m.KeyboardJson != null)
+                            .Select(m => new { m.ExternalIdmId, m.KeyboardJson })
+                            .FirstOrDefaultAsync(ct);
+
+                        if (kbData != null)
+                        {
+                            keyboardMessageId = task.MessageId;
+                            keyboardExternalIdmId = kbData.ExternalIdmId;
+                            keyboardJson = kbData.KeyboardJson;
+
+                            // Клиент мог прислать команду ("/accept_yes") или эмодзи кнопки ("👍") - приводим к каноничному виду
+                            var resolved = ResolvePressedButton(keyboardJson, task.MessageText);
+                            pressedEmoji = resolved.Emoji;
+                            commandForIdm = resolved.Command ?? task.MessageText;
+                        }
+                    }
+
+                    // 4. Отправляем событие в ИДМ (для ЛЮБОЙ команды - и нажатия кнопки, и набранной вручную)
+                    await idmClient.SendBotCommandAsync(new BotCommandRequestDto
+                    {
+                        chat_id = externalChatId,
+                        user_idm_id = senderIdmId,
+                        command = commandForIdm,
+                        message_text = task.MessageText,
+                        message_id = task.MessageId,
+                        keyboard_message_id = keyboardMessageId,
+                        keyboard_external_message_id = keyboardExternalIdmId
+                    }, ct);
+
+                    // 5. Только для нажатия кнопки: скрываем клавиатуру и ставим реакцию (эмодзи кнопки),
+                    //    чтобы все участники видели, кто какую кнопку нажал
+                    if (keyboardMessageId.HasValue)
+                    {
+                        // 5.1 Скрываем клавиатуру в БД
+                        await db.Messages
+                            .Where(m => m.Id == keyboardMessageId.Value)
+                            .ExecuteUpdateAsync(s => s
+                                .SetProperty(m => m.KeyboardJson, (string?)null)
+                                .SetProperty(m => m.UpdatedAt, DateTime.UtcNow), ct);
+
+                        // Собираем ПОЛНЫЙ объект сообщения (как в message_edited),
+                        // чтобы фронт просто перерисовал его без клавиатуры
+                        var kbMessage = await db.Messages
+                            .Where(m => m.Id == keyboardMessageId.Value)
+                            .Select(m => new
+                            {
+                                m.SenderId,
+                                m.Type,
+                                m.Text,
+                                m.CreatedAt,
+                                m.UpdatedAt,
+                                m.IsDeleted,
+                                m.ReplyToMessageId
+                            })
+                            .FirstOrDefaultAsync(ct);
+
+                        if (kbMessage != null)
+                        {
+                            var kbAttachments = await db.FileAttachments
+                                .Where(a => a.MessageId == keyboardMessageId.Value)
+                                .Select(a => new AttachmentDto
+                                {
+                                    id = a.Id,
+                                    file_name = a.FileName,
+                                    file_size = a.FileSize,
+                                    mime_type = a.MimeType,
+                                    url = urlResolver.ResolveUrl(a.StoragePath),
+                                    thumbnail_url = urlResolver.ResolveUrl(a.ThumbnailPath),
+                                    duration = a.Duration,
+                                    type = a.Type
+                                })
+                                .ToListAsync(ct);
+
+                            var kbMentions = await db.MessageMentions
+                                .Where(mm => mm.MessageId == keyboardMessageId.Value)
+                                .Select(mm => new UserMention(mm.UserId, mm.DisplayName))
+                                .ToListAsync(ct);
+
+                            var senderUser = _userCache.GetUser(kbMessage.SenderId);
+
+                            await _hubContext.Clients.Group(task.ConversationId.ToString()).SendAsync("message_updated", new MessageDto
+                            {
+                                id = keyboardMessageId.Value,
+                                conversation_id = task.ConversationId,
+                                sender_id = kbMessage.SenderId,
+                                sender = new UserBriefDto
+                                {
+                                    id = kbMessage.SenderId,
+                                    display_name = senderUser?.DisplayName ?? "-",
+                                    avatar_url = urlResolver.ResolveUrl(senderUser?.AvatarUrl),
+                                    avatar_thumb_url = urlResolver.ResolveAvatarThumbUrl(senderUser?.AvatarUrl)
+                                },
+                                type = kbMessage.Type.ToString().ToLower(),
+                                text = kbMessage.Text,
+                                is_edited = true,
+                                updated_at = kbMessage.UpdatedAt,
+                                created_at = kbMessage.CreatedAt,
+                                is_deleted = kbMessage.IsDeleted,
+                                reply_to_id = kbMessage.ReplyToMessageId,
+                                attachments = kbAttachments,
+                                mentions = kbMentions,
+                                keyboard = null // кнопки скрыты
+                            }, ct);
+                        }
+
+                        // 5.2 Реакция-«след» нажатия (как обычные реакции в чате)
+                        if (!string.IsNullOrWhiteSpace(pressedEmoji))
+                        {
+                            bool alreadyReacted = await db.MessageReactions
+                                .AnyAsync(r => r.MessageId == keyboardMessageId.Value
+                                            && r.UserId == task.SenderId
+                                            && r.Emoji == pressedEmoji, ct);
+
+                            if (!alreadyReacted)
+                            {
+                                db.MessageReactions.Add(new MessageReaction
+                                {
+                                    MessageId = keyboardMessageId.Value,
+                                    UserId = task.SenderId,
+                                    Emoji = pressedEmoji
+                                });
+                                await db.SaveChangesAsync(ct);
+
+                                int currentCount = await db.MessageReactions
+                                    .CountAsync(r => r.MessageId == keyboardMessageId.Value && r.Emoji == pressedEmoji, ct);
+
+                                await _hubContext.Clients.Group(task.ConversationId.ToString()).SendAsync("ReactionAdded", new
+                                {
+                                    conversationId = task.ConversationId,
+                                    messageId = keyboardMessageId.Value,
+                                    reaction = new ReactionAddedResponseDto(pressedEmoji, task.SenderId, currentCount)
+                                }, ct);
+                            }
+                        }
+
+                        _logger.LogDebug("my-debug keyboard hidden for message {MessageId} in conversation {ConversationId}",
+                            keyboardMessageId.Value, task.ConversationId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Ошибка обработки bot-команды {MessageId} в чате {ConversationId}",
+                        task.MessageId, task.ConversationId);
+                }
+            }
+        }
+
+        /// <summary>
+        /// По KeyboardJson сообщения и значению, присланному клиентом при нажатии, находит нажатую кнопку.
+        /// pressedValue может быть текстом команды ("/accept_yes") или эмодзи кнопки ("👍").
+        /// Возвращает эмодзи кнопки (для реакции) и текст команды (для ИДМ).
+        /// </summary>
+        private static (string? Emoji, string? Command) ResolvePressedButton(string? keyboardJson, string pressedValue)
+        {
+            if (string.IsNullOrWhiteSpace(keyboardJson) || string.IsNullOrWhiteSpace(pressedValue)) return (null, null);
+
+            try
+            {
+                var keyboard = JsonSerializer.Deserialize<KeyboardData>(keyboardJson);
+                if (keyboard?.Rows == null) return (null, null);
+
+                foreach (var row in keyboard.Rows)
+                    foreach (var button in row)
+                    {
+                        bool matchesCommand = string.Equals(button.Action, $"command:{pressedValue}", StringComparison.OrdinalIgnoreCase);
+                        bool matchesEmoji = string.Equals(button.Text, pressedValue, StringComparison.Ordinal);
+
+                        if (matchesCommand || matchesEmoji)
+                        {
+                            const string prefix = "command:";
+                            string? command = button.Action != null && button.Action.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                                ? button.Action.Substring(prefix.Length)
+                                : null;
+                            return (button.Text, command);
+                        }
+                    }
+            }
+            catch (JsonException)
+            {
+                // битый JSON - реакцию не ставим
+            }
+
+            return (null, null);
         }
     }
 }

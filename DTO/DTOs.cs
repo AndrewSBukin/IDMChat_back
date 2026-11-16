@@ -330,6 +330,9 @@ namespace IDMChat.DTO
         public string? text { get; set; }
         public List<AttachmentDto>? attachments { get; set; }
 
+        // Инлайн-клавиатура сообщения (кнопки). null - клавиатуры нет
+        public KeyboardDto? keyboard { get; set; }
+
         public ReplyPreviewDto? reply_to { get; set; }
         public long? reply_to_id { get; set; }
 
@@ -440,6 +443,20 @@ namespace IDMChat.DTO
         int count
     );
     public record AddReactionRequestDto(string emoji);
+
+    public class KeyboardDto
+    {
+        public string type { get; set; } = "inline";
+        public List<List<ButtonDto>> rows { get; set; } = new();
+        public bool is_persistent { get; set; }
+    }
+
+    public class ButtonDto
+    {
+        public string text { get; set; } = string.Empty;
+        public string? command { get; set; }   // текст команды, которую клиент отправит при нажатии (напр. "/accept_yes")
+        public string? url { get; set; }
+    }
 
 
     public class ChangeRoleRequestDto
@@ -601,6 +618,27 @@ namespace IDMChat.DTO
         public int id { get; set; }                         // внешний уникальный ключ сообщения
         public int? reply_to_id { get; set; }               // внешний уникальный ключ сообщения, на которое отвечаем этим сообщением
         public string code { get; set; }                    // пустой для текстовых сообщений и "media" для фото/видео, которые надо преобразовать. В text лежит список локальных путей к файлам.
+        public string? keyboard { get; set; }               // тип инлайн-клавиатуры, напр. "accept" (👍/👎). null - без клавиатуры
+    }
+
+    /// <summary>
+    /// Контракт события bot-команды для ИДМ: POST /api/chatbot/command
+    /// </summary>
+    public class BotCommandRequestDto
+    {
+        public string? chat_id { get; set; }                // Внешний ID чата из ExternalChatMappings (напр. "-100123456")
+
+        public int? user_idm_id { get; set; }                // IDM ID отправителя команды
+
+        public string? command { get; set; }               // Текст команды (напр. "/accept_yes")
+
+        public string? message_text { get; set; }           // Полный текст сообщения-команды
+
+        public long message_id { get; set; }                // Внутренний ID сообщения-команды в чате
+
+        public long? keyboard_message_id { get; set; }       // Внутренний ID сообщения, у которого скрывается клавиатура
+
+        public int? keyboard_external_message_id { get; set; } // Внешний ID (ИДМ) сообщения с клавиатурой - по нему ИДМ опознаёт своё сообщение
     }
     #endregion
 

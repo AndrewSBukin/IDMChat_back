@@ -1348,6 +1348,7 @@ namespace IDMChat.Controllers
                     m.ReplyToMessageId, 
                     m.IsForwarded, 
                     m.OriginalSenderId,
+                    m.KeyboardJson,
                     reactions = m.Reactions
                         .GroupBy(r => r.Emoji)
                         .Select(g => new ReactionGroupDto
@@ -1527,6 +1528,7 @@ namespace IDMChat.Controllers
                     ? readByMap[m.Id]
                     : null,
                 mentions = mentionsMap.GetValueOrDefault(m.Id) ?? new List<UserMention>(), 
+                keyboard = BotKeyboards.ToDto(m.KeyboardJson),
                 is_forwarded = m.IsForwarded, 
                 forward_from = m.OriginalSenderId.HasValue ? 
                     new UserBriefDto() { 

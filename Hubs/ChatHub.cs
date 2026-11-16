@@ -178,6 +178,7 @@ namespace IDMChat.Hubs
             public List<Guid>? attachment_ids { get; set; }
             public List<MentionItem> mentions { get; set; }
             public int ext_id { get; set; } = 0;
+            public string? keyboard { get; set; } // тип клавиатуры (напр. "accept") - только для сообщений от ИДМ/бота
         }
         public async Task SendMessage(NewMessageRequest msg)
         {
@@ -207,13 +208,26 @@ namespace IDMChat.Hubs
         {
             var userId = Context.GetUserId();
 
-            // Бросаем задачу в очередь, чтобы воркер уведомил внешнюю систему о клике
+            // 1. Проверка членства в чате (защита от нажатий в чужих чатах)
+            var isMember = await _db.ConversationMembers
+                .AnyAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
+            if (!isMember)
+                throw new HubException("NOT_A_CHAT_MEMBER");
+
+            // 2. У сообщения должна быть активная клавиатура
+            var hasKeyboard = await _db.Messages
+                .AnyAsync(m => m.Id == messageId && m.ConversationId == conversationId && !m.IsDeleted && m.KeyboardJson != null);
+            if (!hasKeyboard)
+                throw new HubException("KEYBOARD_NOT_ACTIVE");
+
+            // Бросаем задачу в очередь, чтобы воркер уведомил ИДМ о клике.
+            // Сообщение при этом НЕ создаётся - нажатие кнопки это системное событие, а не сообщение.
             _backgroundBotQueue.Enqueue(new Task3
             {
                 MessageId = messageId,
                 ConversationId = conversationId,
                 SenderId = userId,
-                MessageText = buttonValue, // Передаем "Да" или "Нет"
+                MessageText = buttonValue, // команда кнопки ("/accept_yes") или её эмодзи ("👍")
                 MessageType = "bot_button_click"
             });
 

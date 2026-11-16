@@ -8,6 +8,12 @@ namespace IDMChat.Services
         Task<List<IdmClubDto>> GetUserClubsAsync(int userId, CancellationToken ct);
         Task<IdmAuthResultDto?> VerifyCredentialsAsync(string username, string password, CancellationToken ct = default);
 
+        /// <summary>
+        /// Отправляет в ИДМ событие bot-команды (текстовая команда "/..." или нажатие кнопки).
+        /// Контракт: POST /api/chatbot/command с телом BotCommandRequestDto.
+        /// </summary>
+        Task<bool> SendBotCommandAsync(BotCommandRequestDto request, CancellationToken ct = default);
+
     }
 
 
@@ -55,6 +61,24 @@ namespace IDMChat.Services
             {
                 // При таймауте или сетевом сбое возвращаем пустой список (безопасный фолбэк)
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Контракт для ИДМ: POST /api/chatbot/command с телом BotCommandRequestDto (snake_case).
+        /// В заголовках HttpClient уже проставлен X-Internal-Api-Key.
+        /// </summary>
+        public async Task<bool> SendBotCommandAsync(BotCommandRequestDto request, CancellationToken ct = default)
+        {
+            try
+            {
+                var response = await _http.PostAsJsonAsync("/api/chatbot/command", request, ct);
+                return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                // Сетевой сбой не должен ронять обработчик команд - ИДМ разберётся по своим логам
+                return false;
             }
         }
     }

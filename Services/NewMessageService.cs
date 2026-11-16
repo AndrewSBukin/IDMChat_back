@@ -164,7 +164,9 @@ namespace IDMChat.Services
                     SentAt = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow,
                     ChannelId = 0, 
-                    ExternalIdmId = msg.ext_id
+                    ExternalIdmId = msg.ext_id,
+                    // Клавиатуру разрешаем только для сообщений от бота/ИДМ - обычный пользователь не может создавать кнопки
+                    KeyboardJson = isBotOrSystem(userId) ? BotKeyboards.BuildKeyboardJson(msg.keyboard) : null
                 };
 
 
@@ -302,7 +304,8 @@ namespace IDMChat.Services
                     },
                     reply_to = replyToObj,
                     attachments = attachments,
-                    mentions = mentionsDto
+                    mentions = mentionsDto,
+                    keyboard = BotKeyboards.ToDto(message.KeyboardJson)
                 };
 
                 await _hubContext.Clients.Group(msg.conversation_id.ToString()).SendAsync("message_new", new

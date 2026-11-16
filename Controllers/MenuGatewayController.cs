@@ -51,7 +51,8 @@ namespace IDMChat.Controllers
             // Если доступа нет ни в правах, ни в меню — жестко блокируем запрос к ИДМ
             if (!hasPermission && !hasMenuAccess)
             {
-                return Forbid();
+                //return Forbid();
+                return StatusCode(404, "Операция не найдена");
             }
 
             var user = await _db.Users.FindAsync(new object[] { userId });
