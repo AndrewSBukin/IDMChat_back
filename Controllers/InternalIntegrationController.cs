@@ -118,6 +118,11 @@ namespace IDMChat.Controllers
         {
             if (!IsValidApiKey()) return Forbid();
 
+            // ИДМ шлёт сюда fire-and-forget с клиентским таймаутом. Если клиент оборвал запрос,
+            // не отменяем работу с БД на полпути (раньше это давало OperationCanceledException
+            // под вечерней нагрузкой) — даём операции завершиться.
+            ct = CancellationToken.None;
+
             if (string.IsNullOrWhiteSpace(dto.chat_id) || string.IsNullOrWhiteSpace(dto.text))
             {
                 return BadRequest(new { error = "Параметры chat_id и text обязательны" });
