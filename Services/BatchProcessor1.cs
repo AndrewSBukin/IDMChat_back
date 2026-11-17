@@ -537,17 +537,26 @@ namespace IDMChat.Services
             {
                 try
                 {
+                    _logger.LogDebug("my-debug bot-command task: type={MessageType} messageId={MessageId} conv={ConversationId} sender={SenderId} text={Text}",
+                        task.MessageType, task.MessageId, task.ConversationId, task.SenderId, task.MessageText);
+
                     // 1. Внешний ID чата для ИДМ
                     var externalChatId = await db.ExternalChatMappings
                         .Where(m => m.ConversationId == task.ConversationId)
                         .Select(m => m.ExternalChatId)
                         .FirstOrDefaultAsync(ct);
 
+                    if (string.IsNullOrEmpty(externalChatId))
+                        _logger.LogDebug("my-debug bot-command: ВНИМАНИЕ ExternalChatMappings не содержит беседу {ConversationId} — chat_id будет null, ИДМ не сможет маршрутизировать команду", task.ConversationId);
+
                     // 2. IDM ID отправителя команды
                     var senderIdmId = await db.Users
                         .Where(u => u.Id == task.SenderId)
                         .Select(u => u.IdmUserId)
                         .FirstOrDefaultAsync(ct);
+
+                    _logger.LogDebug("my-debug bot-command resolved: externalChatId={ExternalChatId} senderIdmId={SenderIdmId}",
+                        externalChatId, senderIdmId);
 
                     // 3. Нажатие кнопки (PressButton): Task3.MessageId - это сообщение с клавиатурой.
                     //    Сообщение при нажатии НЕ создаётся - это системное событие, а не сообщение.
@@ -576,10 +585,16 @@ namespace IDMChat.Services
                             pressedEmoji = resolved.Emoji;
                             commandForIdm = resolved.Command ?? task.MessageText;
                         }
+                        else
+                            _logger.LogDebug("my-debug bot-button-click: ВНИМАНИЕ сообщение с клавиатурой не найдено для messageId={MessageId} conv={ConversationId}",
+                                task.MessageId, task.ConversationId);
+
+                        _logger.LogDebug("my-debug bot-button-click resolved: keyboardExternalIdmId={KeyboardExternalIdmId} commandForIdm={Command} emoji={Emoji}",
+                            keyboardExternalIdmId, commandForIdm, pressedEmoji);
                     }
 
                     // 4. Отправляем событие в ИДМ (для ЛЮБОЙ команды - и нажатия кнопки, и набранной вручную)
-                    await idmClient.SendBotCommandAsync(new BotCommandRequestDto
+                    var dto = new BotCommandRequestDto
                     {
                         chat_id = externalChatId,
                         user_idm_id = senderIdmId,
@@ -588,7 +603,12 @@ namespace IDMChat.Services
                         message_id = task.MessageId,
                         keyboard_message_id = keyboardMessageId,
                         keyboard_external_message_id = keyboardExternalIdmId
-                    }, ct);
+                    };
+                    _logger.LogDebug("my-debug bot-command sending to IDM: {@Dto}", dto);
+
+                    var sendResult = await idmClient.SendBotCommandAsync(dto, ct);
+                    _logger.LogDebug("my-debug bot-command send result from IDM: {Result} for messageId={MessageId}",
+                        sendResult, task.MessageId);
 
                     // 5. Только для нажатия кнопки: скрываем клавиатуру и ставим реакцию (эмодзи кнопки),
                     //    чтобы все участники видели, кто какую кнопку нажал

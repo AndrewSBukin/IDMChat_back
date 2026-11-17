@@ -1,4 +1,6 @@
 ﻿using IDMChat.DTO;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace IDMChat.Services
 {
@@ -20,12 +22,14 @@ namespace IDMChat.Services
     public class IdmApiClient : IIdmApiClient
     {
         private readonly HttpClient _http;
+        private readonly ILogger<IdmApiClient> _logger;
         public HttpClient Http => _http;
 
         // Внедряем HttpClient. Фабрика настроит его автоматически!
-        public IdmApiClient(HttpClient http)
+        public IdmApiClient(HttpClient http, ILogger<IdmApiClient> logger)
         {
             _http = http;
+            _logger = logger;
         }
 
         public async Task<IdmAuthResultDto?> VerifyCredentialsAsync(string username, string password, CancellationToken ct = default)
@@ -70,14 +74,21 @@ namespace IDMChat.Services
         /// </summary>
         public async Task<bool> SendBotCommandAsync(BotCommandRequestDto request, CancellationToken ct = default)
         {
+            var url = $"{Http.BaseAddress}chatgateway/chatbot/command";
+            _logger.LogDebug("my-debug bot-command HTTP to IDM: url={Url} dto={@Dto}", url, request);
+            var sw = Stopwatch.StartNew();
             try
             {
-                var response = await _http.PostAsJsonAsync($"{Http.BaseAddress}chatgateway/chatbot/command", request, ct);
+                var response = await _http.PostAsJsonAsync(url, request, ct);
+                var body = await response.Content.ReadAsStringAsync(CancellationToken.None);
+                _logger.LogDebug("my-debug bot-command HTTP from IDM: status={Status} body={Body} elapsed={ElapsedMs}ms",
+                    (int)response.StatusCode, body, sw.ElapsedMilliseconds);
                 return response.IsSuccessStatusCode;
             }
-            catch
+            catch (Exception ex)
             {
                 // Сетевой сбой не должен ронять обработчик команд - ИДМ разберётся по своим логам
+                _logger.LogError(ex, "my-debug bot-command HTTP to IDM failed: url={Url} elapsed={ElapsedMs}ms", url, sw.ElapsedMilliseconds);
                 return false;
             }
         }

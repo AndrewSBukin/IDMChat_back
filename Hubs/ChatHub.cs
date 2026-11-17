@@ -190,6 +190,9 @@ namespace IDMChat.Hubs
             // ПРОВЕРКА НА КОМАНДУ БОТА
             if (message != null && message.Text.StartsWith("/"))
             {
+                _logger.LogDebug("my-debug bot-command detected in SendMessage: text={Text} messageId={MessageId} conv={ConversationId} sender={SenderId}",
+                    message.Text, message.Id, message.ConversationId, userId);
+
                 // Отправляем задачу в фоновую очередь, чтобы бэк быстро ответил фронту, 
                 // а тяжелый запрос во внешнюю систему ушел в бэкграунд
                 _backgroundBotQueue.Enqueue(new Task3
@@ -200,6 +203,9 @@ namespace IDMChat.Hubs
                     MessageText = message.Text,
                     MessageType = "bot_command" // Специальный тип задачи для нашего воркера
                 });
+
+                _logger.LogDebug("my-debug bot-command enqueued: messageId={MessageId} conv={ConversationId} sender={SenderId}",
+                    message.Id, message.ConversationId, userId);
             }
         }
 
@@ -222,6 +228,9 @@ namespace IDMChat.Hubs
 
             // Бросаем задачу в очередь, чтобы воркер уведомил ИДМ о клике.
             // Сообщение при этом НЕ создаётся - нажатие кнопки это системное событие, а не сообщение.
+            _logger.LogDebug("my-debug bot-button-click detected in PressButton: conv={ConversationId} messageId={MessageId} value={ButtonValue} sender={SenderId}",
+                conversationId, messageId, buttonValue, userId);
+
             _backgroundBotQueue.Enqueue(new Task3
             {
                 MessageId = messageId,
@@ -230,6 +239,9 @@ namespace IDMChat.Hubs
                 MessageText = buttonValue, // команда кнопки ("/accept_yes") или её эмодзи ("👍")
                 MessageType = "bot_button_click"
             });
+
+            _logger.LogDebug("my-debug bot-button-click enqueued: conv={ConversationId} messageId={MessageId}",
+                conversationId, messageId);
 
             return true;
         }
