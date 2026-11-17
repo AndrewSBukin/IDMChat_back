@@ -243,7 +243,8 @@ public class AuthController : ControllerBase
             permissions = authContext.permissions,
             limits = authContext.limits,
             clubs = authContext.clubs.Select(c => ClubMapper.ToFrontendDto(c, localUser.idm)).ToList(),
-            menu = menu
+            menu = menu,
+            staffId = localUser.IdmUserId
         });
     }
 
@@ -543,7 +544,8 @@ public class AuthController : ControllerBase
             permissions = authContext.permissions,
             limits = authContext.limits,
             clubs = authContext.clubs.Select(c => ClubMapper.ToFrontendDto(c, localUser.idm)).ToList(),
-            menu = menu
+            menu = menu,
+            staffId = localUser.IdmUserId
         });
     }
 

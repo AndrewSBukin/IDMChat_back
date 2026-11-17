@@ -72,7 +72,7 @@ namespace IDMChat.Services
         {
             try
             {
-                var response = await _http.PostAsJsonAsync("/api/chatbot/command", request, ct);
+                var response = await _http.PostAsJsonAsync($"{Http.BaseAddress}chatgateway/chatbot/command", request, ct);
                 return response.IsSuccessStatusCode;
             }
             catch

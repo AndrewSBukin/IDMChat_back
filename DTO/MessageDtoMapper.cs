@@ -103,6 +103,7 @@ namespace IDMChat.DTO
                 sender_id = message.SenderId,
                 type = message.Type.ToString().ToLower(),
                 text = message.Text,
+                keyboard_json = message.KeyboardJson,
                 created_at = message.CreatedAt,
                 updated_at = message.UpdatedAt,
                 is_edited = message.UpdatedAt.HasValue,

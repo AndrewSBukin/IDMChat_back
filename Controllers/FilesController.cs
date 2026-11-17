@@ -434,7 +434,7 @@ namespace IDMChat.Controllers
                 .OutputToFile(outputPath, false, options => options
                     .Seek(captureTime)
                     .WithFrameOutputCount(1)
-                    .WithVideoFilters(filterOptions => filterOptions.Scale(320, 240))
+                    .WithVideoFilters(filterOptions => filterOptions.Scale(320, -1))
                     .ForceFormat("mjpeg"))
                 .ProcessAsynchronously();
         }

@@ -36,6 +36,7 @@ namespace IDMChat.DTO
         public Dictionary<string, int> limits { get; set; } = new Dictionary<string, int>();
         public List<ClubDto> clubs { get; set; } = new List<ClubDto>();
         public List<MenuDto> menu { get; set; } = new List<MenuDto>();
+        public int? staffId { get; set; }
     }
     public class ClubDto
     {
@@ -328,6 +329,7 @@ namespace IDMChat.DTO
 
         public string type { get; set; } = string.Empty;
         public string? text { get; set; }
+        public string? keyboard_json { get; set; }
         public List<AttachmentDto>? attachments { get; set; }
 
         // Инлайн-клавиатура сообщения (кнопки). null - клавиатуры нет
