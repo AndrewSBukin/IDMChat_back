@@ -79,7 +79,16 @@ namespace IDMChat.Services
             var sw = Stopwatch.StartNew();
             try
             {
-                var response = await _http.PostAsJsonAsync(url, request, ct);
+                // ИДМ опознаёт отправителя по заголовку X-Chat-Initiator-IdmId (id сотрудника в ИДМ).
+                // PostAsJsonAsync не умеет per-request заголовки, поэтому собираем запрос вручную.
+                var requestMsg = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = JsonContent.Create(request)
+                };
+                if (request.user_idm_id.HasValue)
+                    requestMsg.Headers.Add("X-Chat-Initiator-IdmId", request.user_idm_id.Value.ToString());
+
+                var response = await _http.SendAsync(requestMsg, ct);
                 var body = await response.Content.ReadAsStringAsync(CancellationToken.None);
                 _logger.LogDebug("my-debug bot-command HTTP from IDM: status={Status} body={Body} elapsed={ElapsedMs}ms",
                     (int)response.StatusCode, body, sw.ElapsedMilliseconds);
