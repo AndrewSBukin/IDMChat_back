@@ -179,7 +179,8 @@ namespace IDMChat
             builder.Services.AddHostedService<BatchProcessor<Task2>>();
             builder.Services.AddHostedService<BatchProcessor<Task3>>();
 
-            //builder.Services.AddSingleton<IMessageDtoMapper, MessageDtoMapper>();
+            // Маппер DTO сообщений (зависит от ChatDbContext и IChatPathUrlResolver — поэтому Scoped)
+            builder.Services.AddScoped<IMessageDtoMapper, MessageDtoMapper>();
 
             builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
             {
