@@ -315,6 +315,7 @@ namespace IDMChat.DTO
         public DateTime created_at { get; set; }
         public List<AttachmentDto> attachments { get; internal set; } = new();
         public List<UserMention> mentions { get; internal set; } = new();
+        public List<ReactionGroupDto> reactions { get; internal set; } = new();
     }
 
     public readonly record struct UserMention(Guid user_id, string display_name);

@@ -147,6 +147,17 @@ namespace IDMChat.Controllers
                                     file_size = a.FileSize, 
                                     mime_type = a.MimeType
                                 })
+                                .ToList(),
+                            reactions = _db.MessageReactions
+                                .Where(r => r.MessageId == cm.Conversation.LastMessageId)
+                                .GroupBy(r => r.Emoji)
+                                .Select(g => new ReactionGroupDto
+                                {
+                                    emoji = g.Key,
+                                    count = g.Count(),
+                                    userIds = g.Select(r => r.UserId).ToList(),
+                                    isMine = g.Any(r => r.UserId == userId)
+                                })
                                 .ToList()
                         }
                         : null
@@ -232,7 +243,18 @@ namespace IDMChat.Controllers
                                 : cm.Conversation.LastMessage.Text,
                             type = cm.Conversation.LastMessage.Type.ToString().ToLower(),
                             sender_id = cm.Conversation.LastMessage.SenderId,
-                            created_at = cm.Conversation.LastMessage.CreatedAt
+                            created_at = cm.Conversation.LastMessage.CreatedAt,
+                            reactions = _db.MessageReactions
+                                .Where(r => r.MessageId == cm.Conversation.LastMessageId)
+                                .GroupBy(r => r.Emoji)
+                                .Select(g => new ReactionGroupDto
+                                {
+                                    emoji = g.Key,
+                                    count = g.Count(),
+                                    userIds = g.Select(r => r.UserId).ToList(),
+                                    isMine = g.Any(r => r.UserId == userId)
+                                })
+                                .ToList()
                         }
                         : null
                 })
@@ -514,6 +536,18 @@ namespace IDMChat.Controllers
                         sender_name = sender?.DisplayName;
                     }
 
+                    var reactions = await _db.MessageReactions
+                        .Where(r => r.MessageId == conversation.LastMessageId)
+                        .GroupBy(r => r.Emoji)
+                        .Select(g => new ReactionGroupDto
+                        {
+                            emoji = g.Key,
+                            count = g.Count(),
+                            userIds = g.Select(r => r.UserId).ToList(),
+                            isMine = g.Any(r => r.UserId == userId)
+                        })
+                        .ToListAsync(ct);
+
                     lastMessagePreview = new LastMessageDto
                     {
                         id = message.Id,
@@ -522,7 +556,8 @@ namespace IDMChat.Controllers
                         sender_id = message.SenderId,
                         sender_name = sender_name ?? "ошибка получения имени  ",
                         created_at = message.CreatedAt,
-                        attachments = attachments
+                        attachments = attachments,
+                        reactions = reactions
                     };
                 }
             }
@@ -1728,6 +1763,18 @@ namespace IDMChat.Controllers
                         .SetProperty(c => c.LastMessageText, truncatedText)
                         .SetProperty(c => c.UpdatedAt, message.UpdatedAt.Value), ct);
 
+                var reactions = await _db.MessageReactions
+                    .Where(r => r.MessageId == message.Id)
+                    .GroupBy(r => r.Emoji)
+                    .Select(g => new ReactionGroupDto
+                    {
+                        emoji = g.Key,
+                        count = g.Count(),
+                        userIds = g.Select(r => r.UserId).ToList(),
+                        isMine = g.Any(r => r.UserId == userId)
+                    })
+                    .ToListAsync(ct);
+
                 var lastMessagePreview = new LastMessageDto
                 {
                     id = message.Id,
@@ -1737,7 +1784,8 @@ namespace IDMChat.Controllers
                     sender_name = _userCache.GetDisplayName(userId),
                     created_at = message.CreatedAt,
                     attachments = attachments,
-                    mentions = currentMentionsDto
+                    mentions = currentMentionsDto,
+                    reactions = reactions
                 };
 
                 var conversationUpdatedDto = new ConversationUpdatedDto
@@ -1870,6 +1918,18 @@ namespace IDMChat.Controllers
                             thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
                         })
                         .ToListAsync(ct);
+                    var reactions = await _db.MessageReactions
+                        .Where(r => r.MessageId == prevMessage.Id)
+                        .GroupBy(r => r.Emoji)
+                        .Select(g => new ReactionGroupDto
+                        {
+                            emoji = g.Key,
+                            count = g.Count(),
+                            userIds = g.Select(r => r.UserId).ToList(),
+                            isMine = g.Any(r => r.UserId == userId)
+                        })
+                        .ToListAsync(ct);
+
                     var lastMessagePreview = new LastMessageDto
                     {
                         id = prevMessage.Id,
@@ -1878,7 +1938,8 @@ namespace IDMChat.Controllers
                         sender_id = prevMessage.SenderId,
                         sender_name = _userCache.GetUser(prevMessage.SenderId)?.DisplayName ?? "ошибка получения имени ",
                         created_at = prevMessage.CreatedAt,
-                        attachments = attachments
+                        attachments = attachments,
+                        reactions = reactions
                     };
                     conversationUpdatedDto.last_message = lastMessagePreview;
                 }
@@ -3332,7 +3393,22 @@ namespace IDMChat.Controllers
                                 thumbnail_url = _urlResolver.ResolveUrl(a.ThumbnailPath)
                             })
                             .ToList()
-                        : new List<AttachmentDto>()
+                        : new List<AttachmentDto>(),
+
+                    // Реакции последнего сообщения
+                    LastMessageReactions = cm.Conversation.LastMessageId != null
+                        ? _db.MessageReactions
+                            .Where(r => r.MessageId == cm.Conversation.LastMessageId)
+                            .GroupBy(r => r.Emoji)
+                            .Select(g => new ReactionGroupDto
+                            {
+                                emoji = g.Key,
+                                count = g.Count(),
+                                userIds = g.Select(r => r.UserId).ToList(),
+                                isMine = g.Any(r => r.UserId == userId)
+                            })
+                            .ToList()
+                        : new List<ReactionGroupDto>()
                 })
                 .FirstOrDefaultAsync(ct);
 
@@ -3398,7 +3474,8 @@ namespace IDMChat.Controllers
                     sender_name = _userCache.GetDisplayName(senderId),
                     created_at = data.Conversation.LastMessageCreatedAt ?? DateTime.UtcNow,
                     attachments = data.LastMessageAttachments,
-                    mentions = mentions
+                    mentions = mentions,
+                    reactions = data.LastMessageReactions
                 };
             }
 
