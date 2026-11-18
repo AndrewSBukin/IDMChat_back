@@ -138,9 +138,14 @@ namespace IDMChat.Controllers
                 return Ok(new { success = false, message = "Маппинг не настроен. Пропущено." });
             }
 
-            var existingMessage = await _dbContext.Messages
-                .AsTracking() // Нам нужен трекинг для возможного редактирования текста
-                .FirstOrDefaultAsync(m => m.ExternalIdmId == dto.id && m.ConversationId == mapping.ConversationId, ct);
+            // Дедупликация/редактирование — только для сообщений с реальным внешним id ИДМ (tglog.id > 0):
+            // по нему чат отличает повторы и замены («Проверяю баланс...» → баланс).
+            // Сообщения с id <= 0 — разовые ответы без записи в логе ИДМ: всегда создаём новое сообщение.
+            var existingMessage = dto.id > 0
+                ? await _dbContext.Messages
+                    .AsTracking() // Нам нужен трекинг для возможного редактирования текста
+                    .FirstOrDefaultAsync(m => m.ExternalIdmId == dto.id && m.ConversationId == mapping.ConversationId, ct)
+                : null;
 
             // 2. ЛОГИКА РЕПЛАЕВ: Находим внутренний Guid сообщения, на которое отвечает ИДМ
             long? internalReplyToId = null;

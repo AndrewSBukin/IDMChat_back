@@ -164,7 +164,7 @@ namespace IDMChat.Services
                     SentAt = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow,
                     ChannelId = 0, 
-                    ExternalIdmId = msg.ext_id,
+                    ExternalIdmId = msg.ext_id > 0 ? msg.ext_id : (int?)null,
                     // Клавиатуру разрешаем только для сообщений от бота/ИДМ - обычный пользователь не может создавать кнопки
                     KeyboardJson = isBotOrSystem(userId) ? BotKeyboards.BuildKeyboardJson(msg.keyboard) : null
                 };
