@@ -308,6 +308,11 @@ namespace IDMChat.Services
                     keyboard = BotKeyboards.ToDto(message.KeyboardJson)
                 };
 
+                // Точная копия объекта, уходящего фронту в message_new — только для сообщений с клавиатурой (кнопками)
+                if (messageDto.keyboard != null)
+                    _logger.LogDebug("my-debug message_new with keyboard to frontend: {MessageJson}",
+                        JsonSerializer.Serialize(messageDto, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+
                 await _hubContext.Clients.Group(msg.conversation_id.ToString()).SendAsync("message_new", new
                 {
                     conversation_id = msg.conversation_id,
