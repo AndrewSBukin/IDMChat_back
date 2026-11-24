@@ -1,4 +1,4 @@
-﻿using FirebaseAdmin.Messaging;
+using FirebaseAdmin.Messaging;
 using IDMChat.DTO;
 using IDMChat.Hubs;
 using IDMChat.Models;
@@ -593,6 +593,14 @@ namespace IDMChat.Services
                             keyboardExternalIdmId, commandForIdm, pressedEmoji);
                     }
 
+                    // Защита: сообщение без внешнего id ИДМ (ExternalIdmId == null, пришло от ИДМ с id <= 0)
+                    // ИДМ не сможет найти заявку — не дёргаем ИДМ и не меняем локальное состояние, кнопки остаются.
+                    if (task.MessageType == "bot_button_click" && !keyboardExternalIdmId.HasValue)
+                    {
+                        _logger.LogWarning("my-debug bot-button-click: у сообщения {MessageId} нет внешнего id ИДМ (ExternalIdmId=null) — заявка не будет обработана. Кнопки остаются.", task.MessageId);
+                        continue;
+                    }
+
                     // 4. Отправляем событие в ИДМ (для ЛЮБОЙ команды - и нажатия кнопки, и набранной вручную)
                     var dto = new BotCommandRequestDto
                     {
@@ -610,19 +618,61 @@ namespace IDMChat.Services
                     _logger.LogDebug("my-debug bot-command send result from IDM: {Result} for messageId={MessageId}",
                         sendResult, task.MessageId);
 
-                    // 5. Только для нажатия кнопки: скрываем клавиатуру и ставим реакцию (эмодзи кнопки),
-                    //    чтобы все участники видели, кто какую кнопку нажал
+                    // КРИТЕРИЙ УСПЕХА (договорённость с ИДМ): HTTP 2xx означает, что заявка подтверждена
+                    // или отклонена в ИДМ. Ошибки доставки в Telegram гасятся на стороне ИДМ и на статус не влияют.
+                    // При неуспехе локальное состояние чата НЕ меняем: кнопки остаются, реакция не ставится.
+                    if (!sendResult)
+                    {
+                        _logger.LogWarning("my-debug bot-command: ИДМ не обработала команду (заявка не подтверждена/отклонена). messageId={MessageId} conv={ConversationId} — кнопки остаются",
+                            task.MessageId, task.ConversationId);
+                        continue;
+                    }
+
+                    // 5. Только для нажатия кнопки и только после успешной обработки в ИДМ:
+                    //    реакция + скрытие клавиатуры + ОДНО событие message_edited с keyboard: null и реакциями
                     if (keyboardMessageId.HasValue)
                     {
-                        // 5.1 Скрываем клавиатуру в БД
+                        // 5.1 Реакция-«след» нажатия — ставим ПЕРВОЙ, чтобы попасть в массив реакций события
+                        if (!string.IsNullOrWhiteSpace(pressedEmoji))
+                        {
+                            bool alreadyReacted = await db.MessageReactions
+                                .AnyAsync(r => r.MessageId == keyboardMessageId.Value
+                                            && r.UserId == task.SenderId
+                                            && r.Emoji == pressedEmoji, ct);
+
+                            if (!alreadyReacted)
+                            {
+                                db.MessageReactions.Add(new MessageReaction
+                                {
+                                    MessageId = keyboardMessageId.Value,
+                                    UserId = task.SenderId,
+                                    Emoji = pressedEmoji
+                                });
+                                await db.SaveChangesAsync(ct);
+                            }
+                        }
+
+                        // 5.2 Скрываем клавиатуру в БД
                         await db.Messages
                             .Where(m => m.Id == keyboardMessageId.Value)
                             .ExecuteUpdateAsync(s => s
                                 .SetProperty(m => m.KeyboardJson, (string?)null)
                                 .SetProperty(m => m.UpdatedAt, DateTime.UtcNow), ct);
 
-                        // Собираем ПОЛНЫЙ объект сообщения (как в message_edited),
-                        // чтобы фронт просто перерисовал его без клавиатуры
+                        // 5.3 Актуальные реакции сообщения (включая только что поставленную)
+                        var kbReactions = await db.MessageReactions
+                            .Where(r => r.MessageId == keyboardMessageId.Value)
+                            .GroupBy(r => r.Emoji)
+                            .Select(g => new ReactionGroupDto
+                            {
+                                emoji = g.Key,
+                                count = g.Count(),
+                                userIds = g.Select(r => r.UserId).ToList(),
+                                isMine = false // групповая рассылка — персональный isMine фронт вычислит сам
+                            })
+                            .ToListAsync(ct);
+
+                        // Собираем ПОЛНЫЙ объект сообщения, чтобы фронт просто перерисовал его без клавиатуры
                         var kbMessage = await db.Messages
                             .Where(m => m.Id == keyboardMessageId.Value)
                             .Select(m => new
@@ -661,7 +711,8 @@ namespace IDMChat.Services
 
                             var senderUser = _userCache.GetUser(kbMessage.SenderId);
 
-                            await _hubContext.Clients.Group(task.ConversationId.ToString()).SendAsync("message_updated", new MessageDto
+                            // Одно событие по договорённости: keyboard: null + актуальный массив реакций
+                            await _hubContext.Clients.Group(task.ConversationId.ToString()).SendAsync("message_edited", new MessageDto
                             {
                                 id = keyboardMessageId.Value,
                                 conversation_id = task.ConversationId,
@@ -682,38 +733,9 @@ namespace IDMChat.Services
                                 reply_to_id = kbMessage.ReplyToMessageId,
                                 attachments = kbAttachments,
                                 mentions = kbMentions,
-                                keyboard = null // кнопки скрыты
+                                keyboard = null, // кнопки скрыты
+                                reactions = kbReactions
                             }, ct);
-                        }
-
-                        // 5.2 Реакция-«след» нажатия (как обычные реакции в чате)
-                        if (!string.IsNullOrWhiteSpace(pressedEmoji))
-                        {
-                            bool alreadyReacted = await db.MessageReactions
-                                .AnyAsync(r => r.MessageId == keyboardMessageId.Value
-                                            && r.UserId == task.SenderId
-                                            && r.Emoji == pressedEmoji, ct);
-
-                            if (!alreadyReacted)
-                            {
-                                db.MessageReactions.Add(new MessageReaction
-                                {
-                                    MessageId = keyboardMessageId.Value,
-                                    UserId = task.SenderId,
-                                    Emoji = pressedEmoji
-                                });
-                                await db.SaveChangesAsync(ct);
-
-                                int currentCount = await db.MessageReactions
-                                    .CountAsync(r => r.MessageId == keyboardMessageId.Value && r.Emoji == pressedEmoji, ct);
-
-                                await _hubContext.Clients.Group(task.ConversationId.ToString()).SendAsync("ReactionAdded", new
-                                {
-                                    conversationId = task.ConversationId,
-                                    messageId = keyboardMessageId.Value,
-                                    reaction = new ReactionAddedResponseDto(pressedEmoji, task.SenderId, currentCount)
-                                }, ct);
-                            }
                         }
 
                         _logger.LogDebug("my-debug keyboard hidden for message {MessageId} in conversation {ConversationId}",
