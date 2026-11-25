@@ -1,10 +1,11 @@
-﻿using IDMChat.Domain;
+using IDMChat.Domain;
 using IDMChat.DTO;
 using IDMChat.Hubs;
 using IDMChat.Models;
 using IDMChat.Utils;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using static IDMChat.Controllers.FilesController;
 using static IDMChat.Hubs.ChatHub;
@@ -29,8 +30,10 @@ namespace IDMChat.Services
         private readonly IBackgroundBatchQueue<Task1> _backgroundPushQueue;
         private readonly IBackgroundBatchQueue<Task2> _backgroundSignalRQueue;
         private readonly IHubContext<ChatHub> _hubContext;
+        private readonly int _userMaxTextLength;
+        private readonly int _systemMaxTextLength;
 
-        public NewMessageService(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundBatchQueue<Task1> backgroundPushQueue, IHubContext<ChatHub> hubContext, IBackgroundBatchQueue<Task2> backgroundSignalRQueue)
+        public NewMessageService(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, ILogger<ChatHub> logger, IChatPathUrlResolver urlResolver, IBackgroundBatchQueue<Task1> backgroundPushQueue, IHubContext<ChatHub> hubContext, IBackgroundBatchQueue<Task2> backgroundSignalRQueue, IConfiguration configuration)
         {
             _db = dbContext;
             _chatCache = chatCache;
@@ -40,6 +43,8 @@ namespace IDMChat.Services
             _backgroundPushQueue = backgroundPushQueue;
             _hubContext = hubContext;
             _backgroundSignalRQueue = backgroundSignalRQueue;
+            _userMaxTextLength = MessageLengthLimits.GetUserMaxLength(configuration);
+            _systemMaxTextLength = MessageLengthLimits.GetSystemMaxLength(configuration);
         }
 
         public async Task<Message?> HandleSendSystemMessage(Guid conversationId, string text, CancellationToken ct = default)
@@ -65,6 +70,15 @@ namespace IDMChat.Services
         {
             try
             {
+                // 0. Валидация длины текста ДО любых обращений к БД/кэшу.
+                int maxTextLength = isBotOrSystem(userId) ? _systemMaxTextLength : _userMaxTextLength;
+                if (MessageLengthLimits.IsTooLong(msg.text, maxTextLength))
+                {
+                    _logger.LogWarning("TEXT_TOO_LONG: length={Length} limit={Limit} userId={UserId} conversation={ConversationId}",
+                        msg.text?.Length, maxTextLength, userId, msg.conversation_id);
+                    throw new HubException($"TEXT_TOO_LONG. Максимальная длина сообщения: {maxTextLength} символов");
+                }
+
                 // 2. Проверки из кэша
                 var chat = await _chatCache.GetConversationAsync(msg.conversation_id);
 

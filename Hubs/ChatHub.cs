@@ -1,4 +1,4 @@
-﻿using Azure.Core;
+using Azure.Core;
 using IDMChat.Controllers;
 using IDMChat.Domain;
 using IDMChat.DTO;

@@ -1,4 +1,4 @@
-﻿using Asp.Versioning;
+using Asp.Versioning;
 using FFMpegCore;
 using FirebaseAdmin.Messaging;
 using IDMChat.DTO;
@@ -32,8 +32,9 @@ namespace IDMChat.Controllers
         private readonly IChatPathUrlResolver _urlResolver;
         private readonly INewMessageService _newMessageService;
         private readonly IMessageDtoMapper _messageDtoMapper;
+        private readonly int _systemMaxTextLength;
 
-        public InternalIntegrationController(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, IHubContext<ChatHub> hubContext, IChatPathUrlResolver urlResolver, INewMessageService newMessageService, IMessageDtoMapper messageDtoMapper)
+        public InternalIntegrationController(ChatDbContext dbContext, ChatStateCache chatCache, UserCache userCache, IHubContext<ChatHub> hubContext, IChatPathUrlResolver urlResolver, INewMessageService newMessageService, IMessageDtoMapper messageDtoMapper, Microsoft.Extensions.Configuration.IConfiguration configuration)
         {
             _dbContext = dbContext;
             _chatCache = chatCache;
@@ -42,6 +43,7 @@ namespace IDMChat.Controllers
             _urlResolver = urlResolver;
             _newMessageService = newMessageService;
             _messageDtoMapper = messageDtoMapper;
+            _systemMaxTextLength = MessageLengthLimits.GetSystemMaxLength(configuration);
         }
 
         // Вспомогательный метод сквозной проверки ключа ИДМ
@@ -126,6 +128,13 @@ namespace IDMChat.Controllers
             if (string.IsNullOrWhiteSpace(dto.chat_id) || string.IsNullOrWhiteSpace(dto.text))
             {
                 return BadRequest(new { error = "Параметры chat_id и text обязательны" });
+            }
+
+            // Валидация длины: текстовые рассылки ИДМ (напр. «закрытие дня» до ~21.5 КБ) проходят целиком,
+            // а системные дампы схем (до 3.4 МБ) блокируются — это корень зависания поиска.
+            if (dto.code?.ToLowerInvariant() != "media" && MessageLengthLimits.IsTooLong(dto.text, _systemMaxTextLength))
+            {
+                return BadRequest(new { error = new { code = "TEXT_TOO_LONG", message = $"Максимальная длина сообщения: {_systemMaxTextLength} символов" } });
             }
 
             // Находим маппинг по индексу БД

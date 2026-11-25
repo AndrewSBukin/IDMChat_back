@@ -45,6 +45,7 @@ namespace IDMChat.Controllers
         private readonly INewMessageService _newMessageService;
         private readonly IServiceProvider _serviceProvider;
         private readonly string _storageBasePath;
+        private readonly int _maxTextLength;
 
         public ConversationsController(
             ChatDbContext dbContext, 
@@ -64,6 +65,7 @@ namespace IDMChat.Controllers
             _urlResolver = urlResolver;
             _newMessageService = newMessageService;
             _serviceProvider = serviceProvider;
+            _maxTextLength = MessageLengthLimits.GetUserMaxLength(configuration);
         }
 
         #region Conversations
@@ -1643,6 +1645,10 @@ namespace IDMChat.Controllers
         {
             var userId = HttpContext.GetCurrentUserId();
 
+            // 0. Валидация длины текста (fail fast, до обращений к БД).
+            if (MessageLengthLimits.IsTooLong(request.text, _maxTextLength))
+                return BadRequest(new { error = new { code = "TEXT_TOO_LONG", message = $"Максимальная длина сообщения: {_maxTextLength} символов" } });
+
             // 1. Находим сообщение
             var message = await _db.Messages.AsTracking().FirstOrDefaultAsync(m => m.Id == messageId && m.ConversationId == id, ct);
             if (message == null)
@@ -2847,11 +2853,21 @@ namespace IDMChat.Controllers
                 baseQuery = baseQuery.Where(m => m.Id < before.Value);
             }
 
-            // 6. Выбираем порцию результатов (Свежие сверху: createdAt DESC)
+            // 6. ФАЗА 1: страница результатов (свежие сверху) БЕЗ чтения Text.
+            // ВАЖНО: не выгружаем полный Text — колонка nvarchar(max) в чате «IDM Debug» содержит
+            // системные сообщения размером до ~3.4 МБ (дампы JSON-схем). Чтение полного LOB при
+            // каждом поиске — причина «зависания». Текст снимается фазой 2 как окно вокруг совпадения.
             var dbMessages = await baseQuery
                 .AsNoTracking()
                 .OrderByDescending(m => m.Id) // Сортировка по ID совпадает со временем createdAt DESC
                 .Take(limit + 1)
+                .Select(m => new
+                {
+                    m.Id,
+                    m.ConversationId,
+                    m.SenderId,
+                    m.CreatedAt
+                })
                 .ToListAsync(ct);
 
             bool hasMore = dbMessages.Count > limit;
@@ -2860,47 +2876,43 @@ namespace IDMChat.Controllers
                 dbMessages.RemoveAt(dbMessages.Count - 1);
             }
 
-            // 7. Сборка результатов с динамическим вычислением подсветки (Highlight) в памяти C#
-            var results = dbMessages.Select(m =>
+            // 7. ФАЗА 2: сниппеты вокруг первого совпадения (CHARINDEX + SUBSTRING в SQL, только окно).
+            var snippetRows = await LoadSnippetsAsync(dbMessages.Select(m => m.Id).ToList(), trimmedQuery, ct);
+            var snippetMap = snippetRows.ToDictionary(r => r.Id);
+
+            // 8. Сборка результатов: подсветка считается относительно возвращаемого сниппета.
+            int degradedCount = 0;
+            var results = new List<FoundMessageItemDto>(dbMessages.Count);
+            foreach (var m in dbMessages)
             {
-                // Вычисляем офсеты совпадения слова для фронтенда (Регистронезависимо)
-                int startIndex = m.Text.IndexOf(trimmedQuery, StringComparison.OrdinalIgnoreCase);
-                var highlightDto = startIndex != -1
-                    ? new HighlightDto { start = startIndex, length = trimmedQuery.Length }
-                    : new HighlightDto { start = 0, length = 0 };
+                snippetMap.TryGetValue(m.Id, out var row);
+                var snippet = row != null
+                    ? SearchSnippetBuilder.Build(row.RawWindow, trimmedQuery, row.WindowStartOffset, row.FullLength)
+                    : new SearchSnippet(string.Empty, 0, 0, false);
 
-                if(highlightDto.length == 0 && trimmedQuery.Length > 4)
-                {
-                    string stemQuery = trimmedQuery;
-                    stemQuery = trimmedQuery.Substring(0, trimmedQuery.Length - (trimmedQuery.EndsWith("ы") || trimmedQuery.EndsWith("и") || trimmedQuery.EndsWith("а") ? 1 : 2));
+                // CHARINDEX не нашёл литерал запроса (ё/е-нормализация FTS, токенизация) — считаем такие случаи.
+                if (row != null && row.MatchPos == 0)
+                    degradedCount++;
 
-                    startIndex = m.Text.IndexOf(stemQuery, StringComparison.OrdinalIgnoreCase);
-
-                    int highlightLength = trimmedQuery.Length;
-                    if (startIndex != -1)
-                    {
-                        // Находим, где заканчивается реальное слово в сообщении (до пробела или знака препинания)
-                        int spaceIndex = m.Text.IndexOf(' ', startIndex);
-                        int wordEndIndex = spaceIndex != -1 ? spaceIndex : m.Text.Length;
-                        highlightLength = wordEndIndex - startIndex;
-                    }
-
-                    highlightDto = startIndex != -1
-                        ? new HighlightDto { start = startIndex, length = highlightLength }
-                        : new HighlightDto { start = 0, length = 0 };
-                }
-
-                return new FoundMessageItemDto()
+                results.Add(new FoundMessageItemDto()
                 {
                     id = m.Id,
                     conversationId = m.ConversationId,
                     senderId = m.SenderId,
                     createdAt = m.CreatedAt, // Клиент сам распарсит в локальное время по ТЗ
-                    content = m.Text,        // Поле называется content по контракту фронта
+                    content = snippet.Content,      // сниппет вокруг совпадения (для коротких — полный текст)
                     type = "text",
-                    highlight = highlightDto  // Офсеты совпадения сильно улучшают UX
-                };
-            }).ToList();
+                    highlight = new HighlightDto { start = snippet.HighlightStart, length = snippet.HighlightLength },
+                    contentTruncated = snippet.Truncated,
+                    fullLength = row?.FullLength ?? snippet.Content.Length
+                });
+            }
+
+            if (degradedCount > 0)
+            {
+                _logger.LogWarning("Search snippet degraded (CHARINDEX miss) for conversation={ConversationId} query={Query} count={Count}",
+                    id, trimmedQuery, degradedCount);
+            }
 
             // 9. Возвращаем плоский JSON строго в формате фронтенда
             return Ok(new SearchMessagesResponseDto()
@@ -2911,6 +2923,61 @@ namespace IDMChat.Controllers
             });
         }
         #endregion
+
+        /// <summary>
+        /// ФАЗА 2 поиска: по Id страницы снимает окно вокруг первого совпадения через CHARINDEX.
+        /// Полный LOB в приложение НЕ читается — передаётся только окно фиксированной длины.
+        /// </summary>
+        private async Task<List<SearchSnippetRow>> LoadSnippetsAsync(List<long> ids, string query, CancellationToken ct)
+        {
+            if (ids == null || ids.Count == 0)
+                return new List<SearchSnippetRow>();
+
+            // Id — long из БД (не пользовательский ввод), безопасно подставить в IN(...).
+            var idList = string.Join(",", ids);
+
+            // CHARINDEX считается ОДИН раз и материализуется во временную таблицу.
+            // CROSS APPLY/CTE инлайнятся оптимизатором и пересчитывают CHARINDEX по LOB
+            // несколько раз (~4x медленнее на гигантских сообщениях). Полный Text остаётся в SQL.
+            var sql = $"""
+                SELECT m.Id, m.Text,
+                       CAST(CHARINDEX(@query, m.Text) AS INT) AS Pos,
+                       CAST(LEN(m.Text) AS INT) AS FullLen
+                INTO #snippet_tmp
+                FROM Messages m
+                WHERE m.Id IN ({idList});
+
+                SELECT t.Id AS Id,
+                       t.FullLen AS FullLength,
+                       t.Pos AS MatchPos,
+                       SUBSTRING(t.Text,
+                           CASE
+                             WHEN t.FullLen <= {SearchSnippetBuilder.RawWindowLength} THEN 1
+                             WHEN t.Pos <= {SearchSnippetBuilder.ContextBefore} THEN 1
+                             ELSE t.Pos - {SearchSnippetBuilder.ContextBefore}
+                           END,
+                           {SearchSnippetBuilder.RawWindowLength}) AS RawWindow,
+                       CASE
+                         WHEN t.FullLen <= {SearchSnippetBuilder.RawWindowLength} THEN 0
+                         WHEN t.Pos <= {SearchSnippetBuilder.ContextBefore} THEN 0
+                         ELSE t.Pos - {SearchSnippetBuilder.ContextBefore} - 1
+                       END AS WindowStartOffset
+                FROM #snippet_tmp t;
+                """;
+
+            return await _db.Database
+                .SqlQueryRaw<SearchSnippetRow>(sql, new Microsoft.Data.SqlClient.SqlParameter("@query", query))
+                .ToListAsync(ct);
+        }
+
+        private sealed class SearchSnippetRow
+        {
+            public long Id { get; set; }
+            public int FullLength { get; set; }
+            public int MatchPos { get; set; }
+            public string RawWindow { get; set; } = string.Empty;
+            public int WindowStartOffset { get; set; }
+        }
 
         private async Task<MessageDto> MapToMessageDto(Message m, Guid currentUserId, CancellationToken ct)
         {

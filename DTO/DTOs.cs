@@ -1,4 +1,4 @@
-﻿using IDMChat.Controllers;
+using IDMChat.Controllers;
 using IDMChat.Models;
 using System;
 using System.Collections.Generic;
@@ -240,7 +240,6 @@ namespace IDMChat.DTO
     public class EditMessageRequest
     {
         [Required]
-        [MaxLength(5000)]
         public string text { get; set; } = string.Empty;
         public List<UserMention> mentions { get; set; } = new();
     }
@@ -663,6 +662,9 @@ namespace IDMChat.DTO
         public string type { get; set; } = "text";
         public DateTime createdAt { get; set; }
         public HighlightDto highlight { get; set; }
+        // Новые необязательные поля (аддитивно): сниппет обрезан? полная длина исходного текста?
+        public bool contentTruncated { get; set; }
+        public int fullLength { get; set; }
     }
 
     public class HighlightDto
